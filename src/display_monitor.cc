@@ -113,8 +113,12 @@ int displayMonitorInit()
         fontSetCurrent(DISPLAY_MONITOR_FONT);
 
         gDisplayMonitorLinesCapacity = DISPLAY_MONITOR_LINES_CAPACITY;
+        // The monitor is fixed background art, so it holds as many lines as the
+        // current interface font fits. A taller font simply shows fewer of them;
+        // `displayMonitorRefresh` uses the same line height as the row stride, so
+        // the rows can never overlap.
         _max_disp = DISPLAY_MONITOR_HEIGHT / fontGetLineHeight();
-        if (_max_disp < 5) _max_disp = 5;
+        if (_max_disp < 1) _max_disp = 1;
         _disp_start = 0;
         _disp_curr = 0;
         fontSetCurrent(oldFont);
@@ -322,7 +326,11 @@ static void displayMonitorRefresh()
     int oldFont = fontGetCurrent();
     fontSetCurrent(DISPLAY_MONITOR_FONT);
 
-    int tmp = fontGetLineHeight() > 12 ? 12 : fontGetLineHeight();
+    // NOTE: This used to clamp the row stride to 12 (the height of the original
+    // bitmap interface font). With a TrueType font that is taller than that the
+    // rows were still drawn 12 pixels apart and overlapped, so the stride now
+    // follows the font and `displayMonitorInit` sizes `_max_disp` to match.
+    int tmp = fontGetLineHeight();
     for (int index = 0; index < _max_disp; index++) {
         int stringIndex = (_disp_curr + gDisplayMonitorLinesCapacity + index - _max_disp) % gDisplayMonitorLinesCapacity;
         fontDrawText(buf + index * _intface_full_width * tmp, gDisplayMonitorLines[stringIndex], DISPLAY_MONITOR_WIDTH, _intface_full_width, _colorTable[992]);

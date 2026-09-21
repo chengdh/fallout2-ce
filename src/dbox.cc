@@ -414,32 +414,69 @@ int showDialogBox(const char* title, const char** body, int bodyLength, int x, i
         }
     }
 
-    fontSetCurrent(101);
+    // Dialog boxes are fixed background art, so a taller interface font can only
+    // show fewer text rows. `_dblines` rows of the original 12 pixel bitmap font
+    // is the message area these backgrounds were drawn for, so that is kept as
+    // the limit: the default font lays out exactly as before, while a taller one
+    // simply gets fewer rows and can never reach the DONE button. The font
+    // itself is picked so the message still fits, falling back to the smaller
+    // interface font instead of clipping it.
+    static const int DBOX_BITMAP_LINE_HEIGHT = 12;
 
-    int nextY = _ytable[dialogType];
-    int maxY = _ytable[dialogType] + _dblines[dialogType] * fontGetLineHeight();
+    int bodyTop = _ytable[dialogType];
+    int bodyLimit = bodyTop + _dblines[dialogType] * DBOX_BITMAP_LINE_HEIGHT;
 
-    if ((flags & DIALOG_BOX_NO_VERTICAL_CENTERING) == 0) {
-        int numberOfLines = 0;
+    static const int bodyFonts[] = { 101, 100 };
+    const int bodyFontsCount = sizeof(bodyFonts) / sizeof(bodyFonts[0]);
 
-        if (hasTitle) {
-            numberOfLines++;
-        }
+    int bodyFont = bodyFonts[bodyFontsCount - 1];
+    int bodyLineHeight = 0;
+    int bodyTextLines = 0;
 
-        for (int index = 0; index < bodyLength; index++) {
+    for (int index = 0; index < bodyFontsCount; index++) {
+        fontSetCurrent(bodyFonts[index]);
+
+        int lineHeight = fontGetLineHeight();
+        int lines = hasTitle ? 1 : 0;
+        int maxWidth = backgroundFrmImage.getWidth() - _xtable[dialogType] * 2;
+        for (int bodyIndex = 0; bodyIndex < bodyLength; bodyIndex++) {
             short beginnings[WORD_WRAP_MAX_COUNT];
             short subLineCount;
-            int maxWidth = backgroundFrmImage.getWidth() - _xtable[dialogType] * 2;
-            if (wordWrap(body[index], maxWidth, beginnings, &subLineCount) == 0) {
-                numberOfLines += subLineCount - 1;
+            if (wordWrap(body[bodyIndex], maxWidth, beginnings, &subLineCount) == 0) {
+                lines += subLineCount - 1;
             }
         }
 
-        if (numberOfLines > _dblines[dialogType]) {
-            numberOfLines = _dblines[dialogType];
+        bodyFont = bodyFonts[index];
+        bodyLineHeight = lineHeight;
+        bodyTextLines = lines;
+
+        if (lines * lineHeight <= bodyLimit - bodyTop) {
+            break;
+        }
+    }
+
+    fontSetCurrent(bodyFont);
+
+    int bodyRows = (bodyLimit - bodyTop) / bodyLineHeight;
+    if (bodyRows > _dblines[dialogType]) {
+        bodyRows = _dblines[dialogType];
+    }
+    if (bodyRows < 1) {
+        bodyRows = 1;
+    }
+
+    int nextY = bodyTop;
+    int maxY = bodyTop + bodyRows * bodyLineHeight;
+
+    if ((flags & DIALOG_BOX_NO_VERTICAL_CENTERING) == 0) {
+        int numberOfLines = bodyTextLines;
+
+        if (numberOfLines > bodyRows) {
+            numberOfLines = bodyRows;
         }
 
-        nextY += (_dblines[dialogType] - numberOfLines) * fontGetLineHeight() / 2;
+        nextY += (bodyRows - numberOfLines) * bodyLineHeight / 2;
     }
 
     if (hasTitle) {
@@ -457,8 +494,8 @@ int showDialogBox(const char* title, const char** body, int bodyLength, int x, i
                 backgroundFrmImage.getWidth(),
                 titleColor);
         }
-        //nextY += fontGetLineHeight();
-        nextY += 10;    }
+        nextY += bodyLineHeight;
+    }
 
     for (int index = 0; index < bodyLength && nextY < maxY; index++) {
         int width = fontGetStringWidth(body[index]);
@@ -478,8 +515,7 @@ int showDialogBox(const char* title, const char** body, int bodyLength, int x, i
                     backgroundFrmImage.getWidth(),
                     bodyColor);
             }
-            //nextY += fontGetLineHeight();
-            nextY += 10;
+            nextY += bodyLineHeight;
         } else {
             short beginnings[WORD_WRAP_MAX_COUNT];
             short count;
@@ -517,8 +553,8 @@ int showDialogBox(const char* title, const char** body, int bodyLength, int x, i
                         backgroundFrmImage.getWidth(),
                         bodyColor);
                 }
-                //nextY += fontGetLineHeight();
-                nextY += 10;            }
+                nextY += bodyLineHeight;
+            }
         }
     }
 

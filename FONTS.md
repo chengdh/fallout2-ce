@@ -153,12 +153,13 @@ time, so both work.
 
 ## Caveats
 
-- **Layout is tuned for a 10 px line height.** A number of UI screens do not use
-  `fontGetLineHeight()` for their vertical spacing; they use fixed pixel values
-  (`10`, or `11` in the character selector), and the pipboy/holodisk line counts
-  scale from a 10 px baseline. Changing `maxHeight` or `lineSpacing` in
-  `font.ini` will therefore not rescale those screens - they will overlap or
-  leave gaps. The fixed values are marked with comments where they appear.
+- **Part of the layout is still tuned for a 12 px line height.** Several UI
+  screens do not use `fontGetLineHeight()` for their vertical spacing; they use
+  fixed pixel values (`10`, or `11` in the character selector), and the
+  pipboy/holodisk line counts scale from a 10 px baseline. Changing `maxHeight`
+  or `lineSpacing` in `font.ini` will therefore not rescale those screens - they
+  will overlap or leave gaps. The fixed values are marked with comments where
+  they appear.
 - Only the `english` and `chs` font sets are shipped. Adding a language means
   adding a `fonts/<language>/` directory and a `text\<language>\` directory.
 - `font.ini` lists one `[fontN]` section per font, but the engine only asks for
@@ -173,3 +174,46 @@ time, so both work.
 - The TrueType backend rasterizes into the engine's existing 8-bit indexed
   buffers, including the `FONT_SHADOW` / `FONT_UNDERLINE` effects, so it is a
   drop-in replacement rather than a rewrite of the text pipeline.
+
+## Tuning the interface font size
+
+The interface fonts are picked by ID, and each ID maps to one `[fontN]` section:
+
+| ID | Section | Used for |
+| --- | --- | --- |
+| `100` | `[font0]` | Main menu text and generic window titles. |
+| `101` | `[font1]` | Nearly everything else: dialog options, dialog replies, item and character descriptions, map and floating text, the message monitor. |
+| `102` | `[font2]` | A few character editor labels. |
+| `103` | `[font3]` | The DONE / YES buttons and other larger labels. |
+| `104` | `[font4]` | Main menu, options and preferences headings. |
+| `105` | `[font5]` | Not referenced by the engine. |
+
+Reusing a small ID for a smaller size is the supported way to make text bigger,
+because a handful of interface areas are fixed pixel art that was drawn for the
+original 12 px bitmap font: the generic dialog boxes (`MEDIALOG.FRM`,
+`LGDIALOG.FRM`), the dialog option window and the message monitor. Those areas
+cannot grow, so a taller font simply fits fewer rows in them.
+
+Every one of those areas picks its font instead of assuming `[font1]` will fit:
+
+- `showDialogBox` (`src/dbox.cc`) tries the larger interface font first and
+  falls back to the smaller one when the message would not fit the message area.
+- `_gdOptionsFont` (`src/game_dialog.cc`) does the same for the dialog option
+  list. The list is drawn entirely with one font, so an entry is never dropped.
+- `displayMonitorInit` / `displayMonitorRefresh` (`src/display_monitor.cc`) size
+  the visible line count and the row stride from the actual line height, so a
+  taller font shows fewer messages instead of overlapping them.
+- The dialog reply window is not shrunk: a reply that does not fit is paged with
+  the up/down arrows, as in the original game.
+
+The practical consequence is that **`[font0]` should stay smaller than
+`[font1]`**. It is barely used by the engine (main menu and window titles), and
+keeping it at the original 12 px gives the fixed-size areas somewhere to fall
+back to. A working starting point for a handheld screen is `[font0]` at 12 and
+`[font1]` at 16 - dialogs with a handful of options get the larger text, while a
+long option list falls back to 12 px and stays complete.
+
+Anything that is not laid out against fixed art - floating text, the pipboy,
+most menus - does follow `fontGetLineHeight()`, but see the first caveat above
+before growing `[font3]` and `[font4]`.
+

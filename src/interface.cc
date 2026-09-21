@@ -2253,6 +2253,9 @@ static int indicatorBarInit()
         // [INDICATOR_BOX_HEIGHT] + [INDICATOR_BOX_CONNECTOR_WIDTH]. Maybe just
         // a coincidence. I guess we'll never find out.
         int y = (24 - fontGetLineHeight()) / 2;
+        // NOTE: A TrueType interface font can be tall enough to make the value
+        // above negative, which would draw outside the box.
+        if (y < 0) y = 0;
         int x = (INDICATOR_BOX_WIDTH - fontGetStringWidth(text)) / 2;
         fontDrawText(indicator->data + INDICATOR_BOX_WIDTH * y + x, text, INDICATOR_BOX_WIDTH, INDICATOR_BOX_WIDTH, color);
     }

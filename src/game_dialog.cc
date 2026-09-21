@@ -476,6 +476,9 @@ static unsigned char* _backgrndBufs[8];
 // 0x58ECC0
 static Rect _optionRect;
 
+// Interface font the option list is drawn with, see `_gdOptionsFont`.
+static int gGameDialogOptionsFont = 101;
+
 // 0x58ECD0
 static Rect _replyRect;
 
@@ -2209,7 +2212,9 @@ void gameDialogRenderReply()
 
     _demo_copy_title(gGameDialogReplyWindow);
 
-    // NOTE: Uninline.
+    // NOTE: A reply that does not fit is paged: `gameDialogDrawText` reports the
+    // offset it stopped at and `_gdProcess` turns that into the up/down arrows,
+    // so there is no need to shrink the font here.
     text_to_rect_wrapped(windowGetBuffer(gGameDialogReplyWindow),
         &_replyRect,
         gDialogReplyText,
@@ -2218,6 +2223,117 @@ void gameDialogRenderReply()
         379,
         _colorTable[992] | 0x2000000);
     windowRefresh(gGameDialogReplyWindow);
+}
+
+// Resolves the display text of a single option entry.
+//
+// Returns false when the message could not be found, which aborts the update.
+static bool _gdResolveOptionText(int index, GameDialogOptionEntry* dialogOptionEntry)
+{
+    MessageListItem messageListItem;
+
+    if (dialogOptionEntry->messageListId >= 0) {
+        char* text = _scr_get_msg_str_speech(dialogOptionEntry->messageListId, dialogOptionEntry->messageId, 0);
+        if (text == nullptr) {
+            showMesageBox("\nGDialog::Error Grabbing text message!");
+            exit(1);
+        }
+
+        // SFALL
+        if (gNumberOptions) {
+            snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%d. %s", index + 1, text);
+        } else {
+            snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%c %s", '\x95', text);
+        }
+    } else if (dialogOptionEntry->messageListId == -1) {
+        if (index == 0) {
+            // Go on
+            messageListItem.num = 655;
+            if (critterGetStat(gDude, STAT_INTELLIGENCE) < 4) {
+                if (messageListGetItem(&gProtoMessageList, &messageListItem)) {
+                    // SFALL
+                    if (gNumberOptions) {
+                        snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%d. %s", index + 1, messageListItem.text);
+                    } else {
+                        snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%s", messageListItem.text);
+                    }
+                } else {
+                    debugPrint("\nError...can't find message!");
+                    return false;
+                }
+            }
+        } else {
+            // TODO: Why only space?
+            // SFALL
+            if (gNumberOptions) {
+                snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%d. %s", index + 1, " ");
+            } else {
+                strcpy(dialogOptionEntry->text, " ");
+            }
+        }
+    } else if (dialogOptionEntry->messageListId == -2) {
+        // [Done]
+        messageListItem.num = 650;
+        if (messageListGetItem(&gProtoMessageList, &messageListItem)) {
+            // SFALL
+            if (gNumberOptions) {
+                snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%d. %s", index + 1, messageListItem.text);
+            } else {
+                snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%c %s", '\x95', messageListItem.text);
+            }
+        } else {
+            debugPrint("\nError...can't find message!");
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// Picks the interface font the option list is drawn with.
+//
+// The option window is fixed background art sized for the original 12px
+// interface font. A larger font fits fewer entries, and the loop in
+// `_gdProcessUpdate` silently drops the entries that overflow. When that would
+// happen, draw the whole list with the smaller interface font instead of losing
+// an entry.
+//
+// `_optionRect` must already hold the text area of the option window.
+static int _gdOptionsFont()
+{
+    static const int fonts[] = { 101, 100 };
+    const int fontsCount = sizeof(fonts) / sizeof(fonts[0]);
+
+    int savedFont = fontGetCurrent();
+    int result = fonts[fontsCount - 1];
+
+    for (int index = 0; index < fontsCount; index++) {
+        fontSetCurrent(fonts[index]);
+
+        int lineHeight = fontGetLineHeight();
+        int top = _optionRect.top;
+        bool fits = true;
+
+        // Mirrors the `estimate` test below, including the 2 pixel gap that is
+        // added between entries.
+        for (int option = 0; option < gGameDialogOptionEntriesLength; option++) {
+            int lines = _text_num_lines(gDialogOptionEntries[option].text, _optionRect.right - _optionRect.left);
+            if (top + lines * lineHeight + 2 >= _optionRect.bottom) {
+                fits = false;
+                break;
+            }
+            top += lines * lineHeight + 2;
+        }
+
+        result = fonts[index];
+        if (fits) {
+            break;
+        }
+    }
+
+    fontSetCurrent(savedFont);
+
+    return result;
 }
 
 // 0x446D30
@@ -2255,7 +2371,16 @@ void _gdProcessUpdate()
 
     int width = _optionRect.right - _optionRect.left - 4;
 
-    MessageListItem messageListItem;
+    // Resolve the option texts before drawing anything: the option list font is
+    // chosen from the entries as they will be laid out.
+    for (int index = 0; index < gGameDialogOptionEntriesLength; index++) {
+        if (!_gdResolveOptionText(index, &(gDialogOptionEntries[index]))) {
+            return;
+        }
+    }
+
+    gGameDialogOptionsFont = _gdOptionsFont();
+    fontSetCurrent(gGameDialogOptionsFont);
 
     int v21 = 0;
 
@@ -2276,61 +2401,6 @@ void _gdProcessUpdate()
             default:
                 debugPrint("\nError: dialog: Empathy Perk: invalid reaction!");
                 break;
-            }
-        }
-
-        if (dialogOptionEntry->messageListId >= 0) {
-            char* text = _scr_get_msg_str_speech(dialogOptionEntry->messageListId, dialogOptionEntry->messageId, 0);
-            if (text == nullptr) {
-                showMesageBox("\nGDialog::Error Grabbing text message!");
-                exit(1);
-            }
-
-            // SFALL
-            if (gNumberOptions) {
-                snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%d. %s", index + 1, text);
-            } else {
-                snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%c %s", '\x95', text);
-            }
-        } else if (dialogOptionEntry->messageListId == -1) {
-            if (index == 0) {
-                // Go on
-                messageListItem.num = 655;
-                if (critterGetStat(gDude, STAT_INTELLIGENCE) < 4) {
-                    if (messageListGetItem(&gProtoMessageList, &messageListItem)) {
-                        // SFALL
-                        if (gNumberOptions) {
-                            snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%d. %s", index + 1, messageListItem.text);
-                        } else {
-                            snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%s", messageListItem.text);
-                        }
-                    } else {
-                        debugPrint("\nError...can't find message!");
-                        return;
-                    }
-                }
-            } else {
-                // TODO: Why only space?
-                // SFALL
-                if (gNumberOptions) {
-                    snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%d. %s", index + 1, " ");
-                } else {
-                    strcpy(dialogOptionEntry->text, " ");
-                }
-            }
-        } else if (dialogOptionEntry->messageListId == -2) {
-            // [Done]
-            messageListItem.num = 650;
-            if (messageListGetItem(&gProtoMessageList, &messageListItem)) {
-                // SFALL
-                if (gNumberOptions) {
-                    snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%d. %s", index + 1, messageListItem.text);
-                } else {
-                    snprintf(dialogOptionEntry->text, sizeof(dialogOptionEntry->text), "%c %s", '\x95', messageListItem.text);
-                }
-            } else {
-                debugPrint("\nError...can't find message!");
-                return;
             }
         }
 
