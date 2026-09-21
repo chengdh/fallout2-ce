@@ -1,0 +1,83 @@
+name: Build Windows
+
+# Produces a drop-in Windows release of the controller + TrueType font build.
+#
+# Push to `controller-support` (or start the run manually) and download the
+# artifact from the run summary. Unlike the upstream Windows job this one also
+# ships `gamecontrollerdb.txt`, which src/gamepad.cc loads from the directory
+# of the executable, and the `fonts/` folder the FreeType backend reads.
+#
+# Note: `workflow_dispatch` only shows up in the Actions UI once this file is
+# present on the repository's default branch. The push trigger works without
+# that, so pushing the branch is enough.
+
+on:
+  push:
+    branches:
+      - controller-support
+  workflow_dispatch:
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  windows:
+    name: Windows (${{ matrix.arch }})
+
+    # windows-2019 was retired on 2025-06-30; windows-2022 is the current
+    # stable image and ships the Visual Studio 2022 toolchain.
+    runs-on: windows-2022
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            platform: x64
+          - arch: x86
+            platform: Win32
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+
+      # FALLOUT_VENDORED stays on for Windows: there is no system iconv there,
+      # so the alternative path (find_package(Iconv REQUIRED)) cannot configure.
+      # The vendored zlib, SDL2, FreeType and libiconv are static, which is why
+      # the result is a single self-contained .exe with no DLLs to copy.
+      - name: Configure
+        run: |
+          cmake -B build \
+            -G "Visual Studio 17 2022" \
+            -A ${{ matrix.platform }} \
+            -D FALLOUT_VENDORED=ON \
+            -D FALLOUT_BUILD_CONTROLLER_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Pack
+        run: |
+          cd build/Release
+          cp ../../third_party/controller-db/gamecontrollerdb.txt .
+          cp -r ../../fonts .
+          7z a fallout2-ce-windows-${{ matrix.arch }}.zip fallout2-ce.exe gamecontrollerdb.txt fonts
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: fallout2-ce-windows-${{ matrix.arch }}
+          path: build/Release/fallout2-ce-windows-${{ matrix.arch }}.zip
+          retention-days: 30
+
+      # Runs last and does not fail the job, so a red test never costs you the
+      # executable - check the log for the result and treat a failure as a
+      # follow-up task.
+      - name: Test
+        continue-on-error: true
+        run: ctest --test-dir build -C Release --output-on-failure

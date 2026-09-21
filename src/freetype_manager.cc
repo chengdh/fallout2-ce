@@ -18,6 +18,7 @@
 
 #include <map>
 #include <type_traits>
+#include <utility>
 
 #include "iconv.h"
 #include "settings.h"
