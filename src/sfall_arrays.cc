@@ -1,5 +1,7 @@
 #include "sfall_arrays.h"
 
+#include <new>
+
 #include <assert.h>
 #include <string.h>
 

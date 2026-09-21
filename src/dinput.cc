@@ -1,4 +1,5 @@
 #include "dinput.h"
+#include "gamepad.h"
 
 namespace fallout {
 
@@ -58,6 +59,11 @@ bool mouseDeviceGetData(MouseData* mouseState)
     mouseState->buttons[1] = (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) != 0;
     mouseState->wheelX = gMouseWheelDeltaX;
     mouseState->wheelY = gMouseWheelDeltaY;
+
+    int mergedButtons = (mouseState->buttons[0] ? 1 : 0) | (mouseState->buttons[1] ? 2 : 0);
+    gamepadMouse(mouseState->x, mouseState->y, mergedButtons, mouseState->wheelX, mouseState->wheelY);
+    mouseState->buttons[0] = (mergedButtons & 1) != 0;
+    mouseState->buttons[1] = (mergedButtons & 2) != 0;
 
     gMouseWheelDeltaX = 0;
     gMouseWheelDeltaY = 0;

@@ -236,6 +236,7 @@ typedef struct PathNode {
 // TODO: I don't know what `sad` means, but it's definitely better than
 // `STRUCT_530014`. Find a better name.
 typedef struct AnimationSad {
+    AnimationMoveContinuation* continuation;
     unsigned int flags;
     Object* obj;
     int fid; // fid
@@ -578,6 +579,30 @@ static int _check_registry(Object* obj)
 // Returns -1 if object is playing some animation.
 //
 // 0x413EC8
+static AnimationSad* findContinuousMove(Object* object)
+{
+    for (int i = 0; i < gAnimationCurrentSad; ++i) {
+        AnimationSad* move = &gAnimationSads[i];
+        if (move->obj == object && move->flags == 0
+            && move->field_20 != -1000 && move->field_1C > 0) return move;
+    }
+    return nullptr;
+}
+
+bool animationSetMoveContinuation(Object* object, AnimationMoveContinuation* next)
+{
+    AnimationSad* move = findContinuousMove(object);
+    if (!move) return false;
+    move->continuation = next;
+    return true;
+}
+
+bool animationHasMoveContinuation(Object* object)
+{
+    AnimationSad* move = findContinuousMove(object);
+    return move && move->continuation != nullptr;
+}
+
 int animationIsBusy(Object* a1)
 {
     if (gAnimationDescriptionCurrentIndex >= ANIMATION_DESCRIPTION_LIST_CAPACITY || a1 == nullptr) {
@@ -2390,6 +2415,8 @@ static int _anim_move(Object* obj, int tile, int elev, int a3, int anim, int a5,
     AnimationSad* sad = &(gAnimationSads[gAnimationCurrentSad]);
     sad->obj = obj;
 
+    sad->continuation = nullptr;
+
     if (a5) {
         sad->flags = ANIM_SAD_0x20;
     } else {
@@ -2627,6 +2654,41 @@ static void _object_move(int index)
             }
 
             sad->field_20 += 1;
+
+            // Extend only explicitly opted-in controller movement. Keep the
+            // live animation frame, timing and sub-hex offset between steps.
+            if (sad->field_20 == sad->field_1C && !cannotMove && sad->continuation) {
+                int nextAnimation = sad->anim;
+                int direction = sad->continuation(object, &nextAnimation);
+                if (direction >= 0 && direction < ROTATION_COUNT) {
+                    if (nextAnimation != ANIM_RUNNING
+                        || (object->data.critter.combat.results & DAM_CRIP_LEG_ANY) != 0
+                        || (object == gDude && dudeHasState(DUDE_STATE_SNEAKING) && !perkGetRank(gDude, PERK_SILENT_RUNNING))
+                        || critterIsEncumbered(object)
+                        || !artExists(buildFid(FID_TYPE(object->fid), object->fid & 0xFFF, ANIM_RUNNING, 0, direction + 1))) {
+                        nextAnimation = ANIM_WALK;
+                    }
+                    if (nextAnimation != sad->anim) {
+                        int fid = buildFid(FID_TYPE(object->fid), object->fid & 0xFFF, nextAnimation, (object->fid & 0xF000) >> 12, object->rotation + 1);
+                        CacheEntry* cache;
+                        Art* nextArt = artLock(fid, &cache);
+                        if (nextArt) {
+                            int frameCount = artGetFrameCount(nextArt);
+                            artUnlock(cache);
+                            objectSetFid(object, fid, &tempRect);
+                            rectUnion(&dirtyRect, &tempRect, &dirtyRect);
+                            objectSetFrame(object, frameCount > 0 ? object->frame % frameCount : 0, &tempRect);
+                            rectUnion(&dirtyRect, &tempRect, &dirtyRect);
+                            sad->anim = nextAnimation;
+                            sad->ticksPerFrame = animationComputeTicksPerFrame(object, fid);
+                        }
+                    }
+                    sad->rotations[0] = direction;
+                    sad->field_20 = 0;
+                    sad->field_1C = 1;
+                    sad->field_24 = tileGetTileInDirection(object->tile, direction, 1);
+                }
+            }
 
             if (sad->field_20 == sad->field_1C || cannotMove) {
                 sad->field_20 = -1000;

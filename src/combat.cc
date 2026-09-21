@@ -1,4 +1,5 @@
 #include "combat.h"
+#include "gamepad.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -3154,7 +3155,9 @@ static int _combat_input()
             break;
         }
 
+        gamepadWorldBegin();
         int keyCode = inputGetInput();
+        gamepadWorldEnd();
 
         // SFALL: CombatLoopHook.
         sfall_gl_scr_process_main();
@@ -3300,6 +3303,10 @@ static int _combat_turn(Object* obj, bool a2)
                 }
 
                 _combat_ai(obj, _gcsd != nullptr ? _gcsd->defender : nullptr);
+#ifdef FALLOUT_CONTROLLER_SMOKE_DRIVER
+                extern void gamepadSmokeEnemyCompleted();
+                gamepadSmokeEnemyCompleted();
+#endif
             }
         }
 

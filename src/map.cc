@@ -617,88 +617,10 @@ int mapScroll(int dx, int dy)
 
     gameMouseObjectsHide();
 
-    int centerScreenX;
-    int centerScreenY;
-    tileToScreenXY(gCenterTile, &centerScreenX, &centerScreenY, gElevation);
-    centerScreenX += screenDx + 16;
-    centerScreenY += screenDy + 8;
-
-    int newCenterTile = tileFromScreenXY(centerScreenX, centerScreenY, gElevation);
-    if (newCenterTile == -1) {
-        return -1;
-    }
-
-    if (tileSetCenter(newCenterTile, 0) == -1) {
-        return -1;
-    }
-
-    Rect r1;
-    rectCopy(&r1, &gIsoWindowRect);
-
-    Rect r2;
-    rectCopy(&r2, &r1);
-
-    int width = screenGetWidth();
-    int pitch = width;
-    int height = screenGetVisibleHeight();
-
-    if (screenDx != 0) {
-        width -= 32;
-    }
-
-    if (screenDy != 0) {
-        height -= 24;
-    }
-
-    if (screenDx < 0) {
-        r2.right = r2.left - screenDx;
-    } else {
-        r2.left = r2.right - screenDx;
-    }
-
-    unsigned char* src;
-    unsigned char* dest;
-    int step;
-    if (screenDy < 0) {
-        r1.bottom = r1.top - screenDy;
-        src = gIsoWindowBuffer + pitch * (height - 1);
-        dest = gIsoWindowBuffer + pitch * (screenGetVisibleHeight() - 1);
-        if (screenDx < 0) {
-            dest -= screenDx;
-        } else {
-            src += screenDx;
-        }
-        step = -pitch;
-    } else {
-        r1.top = r1.bottom - screenDy;
-        dest = gIsoWindowBuffer;
-        src = gIsoWindowBuffer + pitch * screenDy;
-
-        if (screenDx < 0) {
-            dest -= screenDx;
-        } else {
-            src += screenDx;
-        }
-        step = pitch;
-    }
-
-    for (int y = 0; y < height; y++) {
-        memmove(dest, src, width);
-        dest += step;
-        src += step;
-    }
-
-    if (screenDx != 0) {
-        _map_scroll_refresh(&r2);
-    }
-
-    if (screenDy != 0) {
-        _map_scroll_refresh(&r1);
-    }
-
-    windowRefresh(gIsoWindow);
-
-    return 0;
+    // Controller follow can leave a sub-hex camera offset. A fixed buffer
+    // shift after recentering would mix two different views and leave trails.
+    // Preserve that offset and redraw at the actual pixel position instead.
+    return tileScrollPixels(screenDx, screenDy);
 }
 
 // 0x482900

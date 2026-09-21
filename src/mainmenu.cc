@@ -301,6 +301,10 @@ int _main_menu_is_enabled()
 // 0x481AEC
 int mainMenuWindowHandleEvents()
 {
+#ifdef FALLOUT_CONTROLLER_SMOKE_DRIVER
+    extern void gamepadSmokeReady();
+    gamepadSmokeReady();
+#endif
     _in_main_menu = true;
 
     bool oldCursorIsHidden = cursorIsHidden();

@@ -3,6 +3,7 @@
 #include <SDL.h>
 
 #include "audio_engine.h"
+#include "gamepad.h"
 #include "color.h"
 #include "delay.h"
 #include "dinput.h"
@@ -42,6 +43,26 @@ static int dequeueInputEvent();
 static void screenshotBlitter(unsigned char* src, int src_pitch, int a3, int x, int y, int width, int height, int dest_x, int dest_y);
 static void buildNormalizedQwertyKeys();
 static void _GNW95_process_key(KeyboardData* data);
+
+static bool gamepadKeys[SDL_NUM_SCANCODES] {};
+
+static void gamepadKey(SDL_Scancode key, bool down)
+{
+    if (down && keyboardIsDisabled()) return;
+    gamepadKeys[key] = down;
+    if (SDL_GetKeyboardState(nullptr)[key]) return;
+    KeyboardData data;
+    data.key = key;
+    data.down = down ? 1 : 0;
+    _GNW95_process_key(&data);
+}
+
+static void gamepadCharacter(int character)
+{
+    if (!keyboardIsDisabled()) enqueueInputEvent(character);
+}
+
+
 
 // 0x51E23C
 static int gKeyboardKeyRepeatRate = 80;
@@ -119,6 +140,7 @@ int inputInit(int a1)
 
     buildNormalizedQwertyKeys();
     _GNW95_clear_time_stamps();
+    gamepadInit("fallout2-ce", gamepadKey, gamepadCharacter, gSdlWindow);
 
     _using_msec_timer = a1;
     gInputEventQueueWriteIndex = 0;
@@ -136,6 +158,7 @@ int inputInit(int a1)
 // 0x4C8B40
 void inputExit()
 {
+    gamepadExit();
     _GNW95_input_init();
     mouseFree();
     keyboardFree();
@@ -160,7 +183,14 @@ int inputGetInput()
         _GNW95_lost_focus();
     }
 
-    _process_bk();
+    if (gamepadOverlayOpen()) {
+        _mouse_info();
+        inputEventQueueReset();
+        while (_kb_getch() != -1) { }
+        return -1;
+    }
+
+    if (!gamepadDispatchText()) _process_bk();
 
     v3 = dequeueInputEvent();
     if (v3 == -1 && mouseGetEvent() & 0x33) {
@@ -910,6 +940,7 @@ void _GNW95_process_message()
     KeyboardData keyboardData;
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
+        if (gamepadHandleEvent(e)) continue;
         switch (e.type) {
         case SDL_MOUSEMOTION:
         case SDL_MOUSEBUTTONDOWN:
@@ -928,7 +959,7 @@ void _GNW95_process_message()
             break;
         case SDL_KEYDOWN:
         case SDL_KEYUP:
-            if (!keyboardIsDisabled()) {
+            if (!keyboardIsDisabled() && !(e.type == SDL_KEYUP && gamepadKeys[e.key.keysym.scancode])) {
                 keyboardData.key = e.key.keysym.scancode;
                 keyboardData.down = (e.key.state & SDL_PRESSED) != 0;
                 _GNW95_process_key(&keyboardData);
@@ -953,13 +984,20 @@ void _GNW95_process_message()
                 break;
             }
             break;
+        case SDL_RENDER_DEVICE_RESET:
+            handleRenderDeviceReset();
+            break;
+        case SDL_RENDER_TARGETS_RESET:
+            handleWindowSizeChanged();
+            break;
         case SDL_QUIT:
             exit(EXIT_SUCCESS);
             break;
         }
     }
 
-    touch_process_gesture();
+    gamepadUpdate();
+    if (!gamepadOverlayOpen()) touch_process_gesture();
 
     if (gProgramIsActive && !keyboardIsDisabled()) {
         // NOTE: Uninline
@@ -1030,10 +1068,12 @@ void _GNW95_lost_focus()
 void beginTextInput()
 {
     SDL_StartTextInput();
+    gamepadTextInput(true);
 }
 
 void endTextInput()
 {
+    gamepadTextInput(false);
     SDL_StopTextInput();
 }
 

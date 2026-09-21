@@ -1,7 +1,7 @@
 #include "random.h"
 
 #include <limits.h>
-#include <stdlib.h>
+#include <cstdlib>
 
 #include <random>
 

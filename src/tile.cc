@@ -534,6 +534,26 @@ void tileWindowRefresh()
 }
 
 // 0x4B12F8
+int tileScrollPixels(int dx, int dy)
+{
+    if (dx == 0 && dy == 0) return 0;
+    int anchor = gCenterTile;
+    int beforeX, beforeY, afterX, afterY;
+    if (tileToScreenXY(anchor, &beforeX, &beforeY, gElevation) != 0) return -1;
+    int tile = tileFromScreenXY(gTileWindowWidth / 2 + dx, gTileWindowHeight / 2 + dy, gElevation, true);
+    // Preserve the engine's map borders and scroll-blocking restrictions.
+    if (tileSetCenter(tile, 0) != 0) return -1;
+    tileToScreenXY(anchor, &afterX, &afterY, gElevation);
+    int offsetX = beforeX - dx - afterX;
+    int offsetY = beforeY - dy - afterY;
+    _tile_offx += offsetX;
+    _tile_offy += offsetY;
+    _square_offx += offsetX;
+    _square_offy += offsetY;
+    tileWindowRefresh();
+    return 0;
+}
+
 int tileSetCenter(int tile, int flags)
 {
     if (!tileIsValid(tile)) {

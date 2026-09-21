@@ -1,5 +1,7 @@
 #include "sfall_ini.h"
 
+#include <cstdlib>
+
 #include <algorithm>
 #include <cstring>
 

@@ -249,6 +249,12 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
 )
 
 target_sources(${EXECUTABLE_NAME} PUBLIC
+    "src/gamepad.cc"
+    "src/gamepad_world.cc"
+    "src/gamepad_movement.h"
+    "src/gamepad_ui.cc"
+    "src/gamepad.h"
+    "src/gamepad_internal.h"
     "src/audio_engine.cc"
     "src/audio_engine.h"
     "src/delay.cc"
@@ -366,7 +372,7 @@ if(FALLOUT_VENDORED)
     add_subdirectory("third_party/sdl2")
 else()
     find_package(ZLIB)
-    find_package(SDL2)
+    find_package(SDL2 2.26 REQUIRED)
 endif()
 
 target_link_libraries(${EXECUTABLE_NAME} ${ZLIB_LIBRARIES})
@@ -374,6 +380,26 @@ target_include_directories(${EXECUTABLE_NAME} PRIVATE ${ZLIB_INCLUDE_DIRS})
 
 target_link_libraries(${EXECUTABLE_NAME} ${SDL2_LIBRARIES})
 target_include_directories(${EXECUTABLE_NAME} PRIVATE ${SDL2_INCLUDE_DIRS})
+
+option(FALLOUT_BUILD_CONTROLLER_TESTS "Build SDL virtual-controller regression tests" OFF)
+option(FALLOUT_CONTROLLER_SMOKE_DRIVER "Enable opt-in live-game controller smoke driver" OFF)
+if(FALLOUT_CONTROLLER_SMOKE_DRIVER)
+    target_sources(${EXECUTABLE_NAME} PRIVATE tests/gamepad_smoke_driver.cc)
+    target_compile_definitions(${EXECUTABLE_NAME} PRIVATE FALLOUT_CONTROLLER_SMOKE_DRIVER)
+endif()
+
+add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/controller-db/gamecontrollerdb.txt"
+        "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>/gamecontrollerdb.txt")
+if(APPLE)
+    target_sources(${EXECUTABLE_NAME} PRIVATE third_party/controller-db/gamecontrollerdb.txt)
+    set_source_files_properties(third_party/controller-db/gamecontrollerdb.txt PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+endif()
+if(FALLOUT_BUILD_CONTROLLER_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
 if(APPLE)
     if(IOS)

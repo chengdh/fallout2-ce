@@ -1,4 +1,5 @@
 #include "main.h"
+#include "gamepad.h"
 
 #include <limits.h>
 #include <string.h>
@@ -326,7 +327,9 @@ static void mainLoop()
     while (_game_user_wants_to_quit == 0) {
         sharedFpsLimiter.mark();
 
+        gamepadWorldBegin();
         int keyCode = inputGetInput();
+        gamepadWorldEnd();
 
         // SFALL: MainLoopHook.
         sfall_gl_scr_process_main();

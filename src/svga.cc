@@ -1,4 +1,5 @@
 #include "svga.h"
+#include "gamepad.h"
 
 #include <limits.h>
 #include <string.h>
@@ -173,12 +174,22 @@ int _init_vesa_mode(int width, int height)
 int _GNW95_init_window(int width, int height, bool fullscreen, int scale)
 {
     if (gSdlWindow == nullptr) {
+#ifdef _WIN32
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "direct3d11");
+#else
         SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
+#endif
+        SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
+        SDL_SetHint(SDL_HINT_RENDER_LOGICAL_SIZE_MODE, "letterbox");
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
 
-        Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI;
+        Uint32 windowFlags = SDL_WINDOW_ALLOW_HIGHDPI;
+#ifndef _WIN32
+        windowFlags |= SDL_WINDOW_OPENGL;
+#endif
 
         if (fullscreen) {
-            windowFlags |= SDL_WINDOW_FULLSCREEN;
+            windowFlags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
         }
 
         gSdlWindow = SDL_CreateWindow(gProgramWindowTitle, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width * scale, height * scale, windowFlags);
@@ -356,7 +367,12 @@ int screenGetVisibleHeight()
 
 static bool createRenderer(int width, int height)
 {
-    gSdlRenderer = SDL_CreateRenderer(gSdlWindow, -1, 0);
+    gSdlRenderer = SDL_CreateRenderer(gSdlWindow, -1, SDL_RENDERER_PRESENTVSYNC);
+    if (!gSdlRenderer) {
+        SDL_ResetHint(SDL_HINT_RENDER_DRIVER);
+        gSdlRenderer = SDL_CreateRenderer(gSdlWindow, -1, SDL_RENDERER_PRESENTVSYNC);
+        if (!gSdlRenderer) gSdlRenderer = SDL_CreateRenderer(gSdlWindow, -1, 0);
+    }
     if (gSdlRenderer == nullptr) {
         return false;
     }
@@ -369,6 +385,8 @@ static bool createRenderer(int width, int height)
     if (gSdlTexture == nullptr) {
         return false;
     }
+
+    SDL_SetTextureScaleMode(gSdlTexture, SDL_ScaleModeNearest);
 
     Uint32 format;
     if (SDL_QueryTexture(gSdlTexture, &format, nullptr, nullptr, nullptr) != 0) {
@@ -403,15 +421,33 @@ static void destroyRenderer()
 
 void handleWindowSizeChanged()
 {
-    destroyRenderer();
-    createRenderer(screenGetWidth(), screenGetHeight());
+    // SDL updates the output viewport on resize/DPI changes. The logical game
+    // resolution and its complete CPU framebuffer must survive Alt-Tab and
+    // fullscreen transitions; rebuilding them loses pixels in partial redraws.
+    if (gSdlRenderer) SDL_RenderSetLogicalSize(gSdlRenderer, screenGetWidth(), screenGetHeight());
+    if (gSdlSurface && gSdlTextureSurface) SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
+}
+
+void handleRenderDeviceReset()
+{
+    // Device loss invalidates GPU textures, not our authoritative CPU image.
+    if (gSdlTexture) SDL_DestroyTexture(gSdlTexture);
+    gSdlTexture = SDL_CreateTexture(gSdlRenderer, SDL_PIXELFORMAT_RGB888,
+        SDL_TEXTUREACCESS_STREAMING, screenGetWidth(), screenGetHeight());
+    if (gSdlTexture) SDL_SetTextureScaleMode(gSdlTexture, SDL_ScaleModeNearest);
+    handleWindowSizeChanged();
 }
 
 void renderPresent()
 {
+    if (!gSdlRenderer || !gSdlTextureSurface) return;
+    if (!gSdlTexture) handleRenderDeviceReset();
+    if (!gSdlTexture) return;
+    SDL_SetRenderDrawColor(gSdlRenderer, 0, 0, 0, 255);
     SDL_UpdateTexture(gSdlTexture, nullptr, gSdlTextureSurface->pixels, gSdlTextureSurface->pitch);
     SDL_RenderClear(gSdlRenderer);
     SDL_RenderCopy(gSdlRenderer, gSdlTexture, nullptr, nullptr);
+    gamepadRender(gSdlRenderer);
     SDL_RenderPresent(gSdlRenderer);
 }
 

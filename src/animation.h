@@ -117,6 +117,10 @@ int _register_priority(int a1);
 int reg_anim_clear(Object* a1);
 int reg_anim_end();
 int animationIsBusy(Object* a1);
+// Return the next hex direction, or -1 to stop at the current hex.
+using AnimationMoveContinuation = int(Object* object, int* animation);
+bool animationSetMoveContinuation(Object* object, AnimationMoveContinuation* next);
+bool animationHasMoveContinuation(Object* object);
 int animationRegisterMoveToObject(Object* owner, Object* destination, int actionPoints, int delay);
 int animationRegisterRunToObject(Object* owner, Object* destination, int actionPoints, int delay);
 int animationRegisterMoveToTile(Object* owner, int tile, int elevation, int actionPoints, int delay);

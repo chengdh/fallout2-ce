@@ -1,5 +1,7 @@
 #include "sfall_global_scripts.h"
 
+#include <new>
+
 #include <algorithm>
 #include <cstring>
 #include <string>

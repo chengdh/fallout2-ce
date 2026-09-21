@@ -1,5 +1,7 @@
 #include "sfall_lists.h"
 
+#include <new>
+
 #include <unordered_map>
 
 #include "object.h"

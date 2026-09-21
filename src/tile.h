@@ -26,6 +26,7 @@ void tileEnable();
 void tileWindowRefreshRect(Rect* rect, int elevation);
 void tileWindowRefresh();
 int tileSetCenter(int tile, int flags);
+int tileScrollPixels(int dx, int dy);
 void tile_toggle_roof(bool refresh);
 int tileRoofIsVisible();
 int tileToScreenXY(int tile, int* x, int* y, int elevation);

@@ -34,6 +34,14 @@ int main(int argc, char* argv[])
     if (GetLastError() != ERROR_SUCCESS) {
         return 0;
     }
+
+    // Shell launchers may supply an unrelated working directory. Resolve
+    // portable game data and controller settings beside the executable.
+    char* executablePath = SDL_GetBasePath();
+    if (executablePath != nullptr) {
+        SetCurrentDirectoryA(executablePath);
+        SDL_free(executablePath);
+    }
 #endif
 
 #if __APPLE__ && TARGET_OS_IOS

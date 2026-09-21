@@ -1,4 +1,5 @@
 #include "game_mouse.h"
+#include "gamepad.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -641,6 +642,12 @@ void gameMouseRefresh()
             gameMouseSetCursor(MOUSE_CURSOR_NONE);
         }
 
+        if (!_gmouse_mapper_mode && gGameMouseMode == GAME_MOUSE_MODE_MOVE
+            && gamepadHidesMovementCursor()) {
+            gameMouseObjectsHide();
+            return;
+        }
+
         if ((gGameMouseHexCursor->flags & OBJECT_HIDDEN) != 0) {
             gameMouseObjectsShow();
         }
@@ -918,7 +925,10 @@ void _gmouse_handle_event(int mouseX, int mouseY, int mouseState)
     }
 
     if ((mouseState & MOUSE_EVENT_RIGHT_BUTTON_DOWN) != 0) {
-        if ((mouseState & MOUSE_EVENT_RIGHT_BUTTON_REPEAT) == 0 && (gGameMouseHexCursor->flags & OBJECT_HIDDEN) == 0) {
+        // A hidden movement marker must still allow interaction/targeting.
+        if ((mouseState & MOUSE_EVENT_RIGHT_BUTTON_REPEAT) == 0
+            && ((gGameMouseHexCursor->flags & OBJECT_HIDDEN) == 0
+                || (gGameMouseMode == GAME_MOUSE_MODE_MOVE && gamepadHidesMovementCursor()))) {
             gameMouseCycleMode();
         }
         return;
@@ -1509,6 +1519,12 @@ void gameMouseResetBouncingCursorFid()
 void gameMouseObjectsShow()
 {
     if (!gGameMouseInitialized) {
+        return;
+    }
+
+    if (!_gmouse_mapper_mode && gGameMouseMode == GAME_MOUSE_MODE_MOVE
+        && gamepadHidesMovementCursor()) {
+        gameMouseObjectsHide();
         return;
     }
 
@@ -2333,6 +2349,8 @@ int _gmouse_3d_move_to(int x, int y, int elevation, Rect* rect)
 // 0x44E42C
 int gameMouseHandleScrolling(int x, int y, int cursor)
 {
+    // A parked pointer must not fight direct movement or right-stick panning.
+    if (gamepadOwnsCamera()) return -1;
     if (!_gmouse_scrolling_enabled) {
         return -1;
     }

@@ -1,5 +1,7 @@
 #include "message.h"
 
+#include <new>
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
