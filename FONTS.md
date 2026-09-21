@@ -102,15 +102,28 @@ Each `[fontN]` section in `font.ini` describes one font:
 
 | Key | Meaning |
 | --- | --- |
-| `maxHeight`, `maxWidth` | Pixel size the glyphs are rasterized at. |
+| `maxHeight`, `maxWidth` | Pixel size the glyphs are rasterized at. `maxWidth` only sets the requested pixel width; how far the pen moves after a glyph comes from the font's own advance width. |
 | `lineSpacing`, `heightOffset` | Added to `maxHeight` to form the line height. |
-| `wordSpacing`, `letterSpacing` | Extra advance for spaces and between glyphs. |
+| `wordSpacing`, `letterSpacing` | Replace the advance of a space, and add to the advance of every other glyph. |
 | `fileName` | Font file, relative to the directory `font.ini` was read from. |
 | `warpMode` | `1` disables word wrapping in favour of character wrapping. |
 | `encoding` | 8-bit encoding of the game's strings, e.g. `GBK`. Converted to Unicode with iconv. |
 
 Several `[fontN]` sections may point at the same file at different sizes; the
 `english` and `chs` sets both do this.
+
+### Spacing
+
+Glyphs are laid out by the advance widths stored in the font, plus
+`letterSpacing`. `maxWidth` is a rasterization hint, not a pen advance: a CJK
+glyph rasterized at 12px has an ink extent of about 11px but an advance of
+13px, and laying the text out by the ink extent throws away the side bearings
+and packs the characters into each other. Narrow glyphs suffer most - a full
+stop covers 1px of ink against a 4px advance.
+
+If a font set looks too loose or too tight, change `letterSpacing`, not
+`maxWidth`. Setting it to a negative value tightens the text; the renderer
+does not clamp it.
 
 Place the `fonts` directory next to `master.dat`, i.e. wherever the game already
 looks for its data files.

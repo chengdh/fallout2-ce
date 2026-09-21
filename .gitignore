@@ -391,4 +391,5 @@ FodyWeavers.xsd
 # CMake
 /out
 /build
+/build-*
 CMakeUserPresets.json

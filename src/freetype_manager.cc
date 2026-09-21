@@ -35,6 +35,11 @@ typedef struct FtFontGlyph {
     short rows;
     short left;
     short top;
+    // Advance width in whole pixels, straight from the font. `width` is only
+    // the ink extent of the bitmap and is narrower than this for any glyph
+    // that carries side bearings - which is most of them. Laying glyphs out
+    // by `width` eats that bearing and packs the text together.
+    short advance;
     unsigned char* buffer;
 } FtFontGlyph;
 
@@ -193,6 +198,7 @@ static FtFontGlyph GetFtFontGlyph(uint32_t unicode)
             current->map[unicode].top = current->maxHeight / 2;
             current->map[unicode].width = knobWidth;
             current->map[unicode].rows = knobHeight;
+            current->map[unicode].advance = knobWidth;
             current->map[unicode].buffer = knobDump;
         } else {
             FT_Load_Glyph(current->face, FT_Get_Char_Index(current->face, unicode), FT_LOAD_DEFAULT | FT_LOAD_NO_BITMAP);
@@ -202,6 +208,8 @@ static FtFontGlyph GetFtFontGlyph(uint32_t unicode)
             current->map[unicode].top = current->face->glyph->bitmap_top;
             current->map[unicode].width = current->face->glyph->bitmap.width;
             current->map[unicode].rows = current->face->glyph->bitmap.rows;
+            // 26.6 fixed point to whole pixels.
+            current->map[unicode].advance = current->face->glyph->advance.x >> 6;
 
             int count = current->face->glyph->bitmap.width * current->face->glyph->bitmap.rows;
 
@@ -475,11 +483,14 @@ static int FtFontGetStringWidthImpl(const char* string)
             if (ch == '\x95') {
                 FtFontGlyph g = GetFtFontGlyph(ch);
                 width += g.width + current->letterSpacing + 2;
-            } else if (ch == L' ' || (ch < 256 && ch > 128)) {
+            } else if (ch == L' ') {
                 width += current->wordSpacing + current->letterSpacing;
             } else {
+                // Must agree with `FtFontDrawImpl`, which also advances by
+                // `g.advance`. When the two disagree, wrapped lines are
+                // measured as narrower than they are drawn.
                 FtFontGlyph g = GetFtFontGlyph(ch);
-                width += g.width + current->letterSpacing;
+                width += g.advance + current->letterSpacing;
             }
         }
 
@@ -575,7 +586,11 @@ static void FtFontDrawImpl(unsigned char* buf, const char* string, int length, i
         } else if (ch == '\x95') {
             characterWidth = g.width + 2;
         } else {
-            characterWidth = g.width;
+            // Advance the pen by the font's advance width, not by the ink
+            // extent of the bitmap. Their difference is the glyph's side
+            // bearings, and dropping them is what packed CJK text into an
+            // unreadable smear.
+            characterWidth = g.advance;
         }
 
         unsigned char* end = ptr + characterWidth + current->letterSpacing;
@@ -590,7 +605,12 @@ static void FtFontDrawImpl(unsigned char* buf, const char* string, int length, i
         for (int y = 0; y < g.rows && y < current->maxHeight; y++) {
             for (int x = 0; x < g.width; x++) {
                 unsigned char byte = *glyphDataPtr++;
-                byte /= 26;
+                // The blend table starts with eight levels (0/7 .. 7/7 of the
+                // foreground) and continues with six entries of
+                // `_calculateColor` used for glow effects. Dividing by 26 sent
+                // a fully opaque pixel to index 9 - a glow entry - instead of
+                // to the plain foreground at index 7.
+                byte >>= 5;
 
                 *ptr++ = palette[(byte << 8) + *ptr];
             }
@@ -653,12 +673,15 @@ static int FtFonteWordWrapImpl(const char* string, int width, short* breakpoints
 
         PreCharIndex = CharIndex;
 
-        if (ch == L' ' || (ch > 128 && ch < 256)) {
+        // Must agree with `FtFontDrawImpl` and `FtFontGetStringWidthImpl`.
+        // `(ch > 128 && ch < 256)` used to be treated as a blank here but not
+        // when drawing, so wrapped lines were measured narrower than drawn.
+        if (ch == L' ') {
             accum += current->letterSpacing + current->wordSpacing;
         } else if (ch == '\x95') {
             accum += current->letterSpacing + g.width + 2;
         } else {
-            accum += current->letterSpacing + g.width;
+            accum += current->letterSpacing + g.advance;
         }
 
         // NOTE: This used to add a literal 1 for every character outside the
