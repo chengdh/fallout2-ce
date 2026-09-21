@@ -5,7 +5,9 @@
 
 #include "color.h"
 #include "db.h"
+#include "debug.h"
 #include "memory_manager.h"
+#include "platform_compat.h"
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -55,6 +57,7 @@ typedef struct FtFontDescriptor {
 } FtFontDescriptor;
 
 static int FtFontLoad(int font);
+static int FtFontsLoadSet(const char* dir);
 static void FtFontSetCurrentImpl(int font);
 static int FtFontGetLineHeightImpl();
 static int FtFontGetStringWidthImpl(const char* string);
@@ -201,35 +204,71 @@ static FtFontGlyph GetFtFontGlyph(uint32_t unicode)
     }
 }
 
+// Directory the current font set was loaded from, with a trailing separator.
+// Font files named by `fileName` are resolved against it, so a `font.ini` in
+// `fonts/chs/` must reference `fonts/chs/*.ttf` while one in `fonts/` must
+// reference `fonts/*.ttf`.
+static char gFtFontDir[COMPAT_MAX_PATH];
+
 // 0x441C80
 int FtFontsInit()
 {
-    int currentFont = -1;
+    const char* language = settings.system.language.c_str();
+    char fontDir[COMPAT_MAX_PATH];
+
+    // NOTE: This port keeps one font set per language in `fonts/<language>/`,
+    // while the Chinese translation of the community edition ships a single
+    // set in `fonts/font.ini` for every language (the font files live next to
+    // it). Both layouts are supported, the per-language one first.
+    snprintf(fontDir, sizeof(fontDir), "fonts/%s", language);
+    if (FtFontsLoadSet(fontDir) == 0) {
+        if (FtFontsLoadSet("fonts") == 0) {
+            debugPrint("No usable font configuration (\"fonts/%s/font.ini\" and \"fonts/font.ini\" both failed); using the built-in fonts.\n", language);
+            return -1;
+        }
+
+        debugPrint("Using \"fonts/font.ini\" instead of \"fonts/%s/font.ini\".\n", language);
+    }
+
+    gFtFontsInitialized = true;
+
+    FtFontSetCurrentImpl(gCurrentFtFont + 100);
+
+    return 0;
+}
+
+// Loads the whole font set from [dir] ("fonts/chs" or "fonts"). Returns the
+// number of fonts that could be loaded, which is zero when [dir] holds no
+// usable configuration at all.
+static int FtFontsLoadSet(const char* dir)
+{
+    snprintf(gFtFontDir, sizeof(gFtFontDir), "%s/", dir);
+
+    int fontsLength = 0;
+    int firstFont = -1;
 
     for (int font = 0; font < FT_FONT_MAX; font++) {
         if (FtFontLoad(font) == -1) {
             gFtFontDescriptors[font].maxHeight = 0;
             gFtFontDescriptors[font].filebuffer = NULL;
         } else {
-            ++gFtFontsLength;
-
-            if (currentFont == -1) {
-                currentFont = font;
+            if (firstFont == -1) {
+                firstFont = font;
             }
 
-            gFtFontManager.maxFont = gFtFontsLength + 100;
+            ++fontsLength;
         }
     }
 
-    if (currentFont == -1) {
-        return -1;
+    if (firstFont == -1) {
+        return 0;
     }
 
-    gFtFontsInitialized = true;
+    gFtFontsLength = fontsLength;
+    gCurrentFtFont = firstFont;
+    gFtFontManager.maxFont = fontsLength + 100;
 
-    FtFontSetCurrentImpl(currentFont + 100);
-
-    return 0;
+    return fontsLength;
 }
 
 // 0x441CEC
@@ -246,7 +285,8 @@ void FtFontsExit()
 // 0x441D20
 static int FtFontLoad(int font_index)
 {
-    char string[56];
+    char section[16];
+    char path[COMPAT_MAX_PATH];
     FtFontDescriptor* desc = &(gFtFontDescriptors[font_index]);
 
     Config config;
@@ -254,81 +294,122 @@ static int FtFontLoad(int font_index)
         return -1;
     }
 
-    sprintf(string, "fonts/%s/font.ini", settings.system.language.c_str());
-    if (!configRead(&config, string, false)) {
-        return -1;
+    // NOTE: `desc->filebuffer` is what marks a descriptor as usable, so it is
+    // only assigned once the face has actually been created. Everything else
+    // lives in locals that are released on the way out.
+    unsigned char* filebuffer = NULL;
+    unsigned char* filePtr = NULL;
+    char* encoding = NULL;
+    char* fontFileName = NULL;
+    File* stream = NULL;
+    int fileSize = 0;
+    int readleft = 0;
+    int rc = -1;
+
+    snprintf(path, sizeof(path), "%sfont.ini", gFtFontDir);
+    if (!configRead(&config, path, false)) {
+        goto done;
     }
 
-    sprintf(string, "font%d", font_index);
+    snprintf(section, sizeof(section), "font%d", font_index);
 
-    if (!configGetInt(&config, string, "maxHeight", &desc->maxHeight)) {
-        return -1;
+    if (!configGetInt(&config, section, "maxHeight", &desc->maxHeight)) {
+        goto done;
     }
-    if (!configGetInt(&config, string, "maxWidth", &desc->maxWidth)) {
+    if (!configGetInt(&config, section, "maxWidth", &desc->maxWidth)) {
         desc->maxWidth = desc->maxHeight;
     }
-    if (!configGetInt(&config, string, "lineSpacing", &desc->lineSpacing)) {
-        return -1;
+    if (!configGetInt(&config, section, "lineSpacing", &desc->lineSpacing)) {
+        goto done;
     }
-    if (!configGetInt(&config, string, "wordSpacing", &desc->wordSpacing)) {
-        return -1;
+    if (!configGetInt(&config, section, "wordSpacing", &desc->wordSpacing)) {
+        goto done;
     }
-    if (!configGetInt(&config, string, "letterSpacing", &desc->letterSpacing)) {
-        return -1;
+    if (!configGetInt(&config, section, "letterSpacing", &desc->letterSpacing)) {
+        goto done;
     }
-    if (!configGetInt(&config, string, "heightOffset", &desc->heightOffset)) {
-        return -1;
+    if (!configGetInt(&config, section, "heightOffset", &desc->heightOffset)) {
+        goto done;
     }
-    if (!configGetInt(&config, string, "warpMode", &desc->warpMode)) {
-        return -1;
+    if (!configGetInt(&config, section, "warpMode", &desc->warpMode)) {
+        goto done;
     }
-    char* encoding = NULL;
-    if (!configGetString(&config, string, "encoding", &encoding)) {
-        return -1;
-    }
-    strcpy(desc->encoding, encoding);
-    
-    char *fontFileName = NULL;
-    if (!configGetString(&config, string, "fileName", &fontFileName)) {
-        return -1;
+    if (!configGetString(&config, section, "encoding", &encoding)) {
+        goto done;
     }
 
-    sprintf(string, "fonts/%s/%s", settings.system.language.c_str(), fontFileName);
+    strncpy(desc->encoding, encoding, sizeof(desc->encoding) - 1);
+    desc->encoding[sizeof(desc->encoding) - 1] = '\0';
 
-    File* stream = fileOpen(string, "rb");
+    if (!configGetString(&config, section, "fileName", &fontFileName)) {
+        goto done;
+    }
+
+    snprintf(path, sizeof(path), "%s%s", gFtFontDir, fontFileName);
+
+    stream = fileOpen(path, "rb");
     if (stream == NULL) {
-        return -1;
+        debugPrint("Font file \"%s\" referenced by [%s] does not exist.\n", path, section);
+        goto done;
     }
 
-    int fileSize = fileGetSize(stream); //19647736
+    fileSize = fileGetSize(stream);
 
-    desc->filebuffer = (unsigned char*)internal_malloc_safe(fileSize, __FILE__, __LINE__); // FONTMGR.C, 259
+    filebuffer = (unsigned char*)internal_malloc_safe(fileSize, __FILE__, __LINE__); // FONTMGR.C, 259
 
-    int readleft = fileSize;
-    unsigned char* ptr = desc->filebuffer;
+    readleft = fileSize;
+    filePtr = filebuffer;
 
     while (readleft > 10000) {
-        int readsize = fileRead(ptr, 1, 10000, stream);
+        int readsize = fileRead(filePtr, 1, 10000, stream);
         if (readsize != 10000) {
-            return -1;
+            debugPrint("Font file \"%s\" is truncated.\n", path);
+            goto done;
         }
         readleft -= 10000;
-        ptr += 10000;
+        filePtr += 10000;
     }
 
-    if (fileRead(ptr, 1, readleft, stream) != readleft) {
-        return -1;
+    if (fileRead(filePtr, 1, readleft, stream) != readleft) {
+        debugPrint("Font file \"%s\" is truncated.\n", path);
+        goto done;
     }
 
-    FT_Init_FreeType(&(desc->library));
-    FT_New_Memory_Face(desc->library, desc->filebuffer, fileSize, 0, &desc->face);
+    fileClose(stream);
+    stream = NULL;
+
+    if (FT_Init_FreeType(&(desc->library)) != 0) {
+        debugPrint("Font file \"%s\" cannot be used (FreeType initialization failed).\n", path);
+        goto done;
+    }
+
+    if (FT_New_Memory_Face(desc->library, filebuffer, fileSize, 0, &(desc->face)) != 0) {
+        debugPrint("Font file \"%s\" is not a font FreeType can load.\n", path);
+        FT_Done_FreeType(desc->library);
+        desc->library = NULL;
+        goto done;
+    }
 
     FT_Select_Charmap(desc->face, FT_ENCODING_UNICODE);
     FT_Set_Pixel_Sizes(desc->face, desc->maxWidth, desc->maxHeight);
 
-    fileClose(stream);
+    desc->filebuffer = filebuffer;
+    filebuffer = NULL;
+
+    rc = 0;
+
+done:
+    if (stream != NULL) {
+        fileClose(stream);
+    }
+
+    if (filebuffer != NULL) {
+        internal_free_safe(filebuffer, __FILE__, __LINE__);
+    }
+
     configFree(&config);
-    return 0;
+
+    return rc;
 }
 
 // 0x442120
