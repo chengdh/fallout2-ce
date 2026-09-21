@@ -160,14 +160,27 @@ static int LtoU(const char* input, size_t charInPutLen)
     }
 }
 
-static int UtoL(const char* input, size_t charInPutLen)
+// Number of bytes `unicode` occupies in the font's encoding. Every offset this
+// module hands back is a byte offset into the original string, so this is what
+// has to be accumulated while measuring text.
+//
+// NOTE: The previous implementation converted through the same buffer that
+// holds the decoded text, aliasing the input of `iconv` with its output.
+static int FtCharByteLength(uint32_t unicode)
 {
-    size_t output_size = 1024;
+    char buffer[8];
+    size_t charInPutLen = sizeof(unicode);
+    size_t output_size = sizeof(buffer);
     iconv_t cd = iconv_open(current->encoding, "UCS-4-INTERNAL");
-    iconvConvert(cd, input, &charInPutLen, (char*)output, &output_size);
+    iconvConvert(cd, (const char*)&unicode, &charInPutLen, buffer, &output_size);
     iconv_close(cd);
 
-    return (1024 - output_size);
+    int bytes = (int)(sizeof(buffer) - output_size);
+
+    // A character with no representation in the target encoding still has to
+    // advance the offset by something, otherwise the wrap loop stops making
+    // progress.
+    return bytes > 0 ? bytes : 1;
 }
 
 static FtFontGlyph GetFtFontGlyph(uint32_t unicode)
@@ -628,7 +641,11 @@ static int FtFonteWordWrapImpl(const char* string, int width, short* breakpoints
     {
         const uint32_t ch = output[i];
 
+        // A hard line break in the source text is left to the caller to deal
+        // with. Advance the index: skipping a character without advancing
+        // never terminates.
         if (ch == L'\n' || ch == L'\r') {
+            i++;
             continue;
         }
 
@@ -638,18 +655,17 @@ static int FtFonteWordWrapImpl(const char* string, int width, short* breakpoints
 
         if (ch == L' ' || (ch > 128 && ch < 256)) {
             accum += current->letterSpacing + current->wordSpacing;
-            CharIndex += 1;
+        } else if (ch == '\x95') {
+            accum += current->letterSpacing + g.width + 2;
         } else {
-            if (ch == '\x95')
-                accum += current->letterSpacing + g.width + 2;
-            else
-                accum += current->letterSpacing + g.width;
-
-            if ((ch > 0 && ch < 128) || ch == '\x95')
-                CharIndex += 1;
-            else
-                CharIndex += UtoL((char*)(&(output[i])), sizeof(uint32_t));
+            accum += current->letterSpacing + g.width;
         }
+
+        // NOTE: This used to add a literal 1 for every character outside the
+        // CJK range. That is only correct for a single byte encoding: in GBK a
+        // character like U+00B0 occupies two bytes, and understating its size
+        // shifts all following breaks into the middle of a character.
+        CharIndex += FtCharByteLength(ch);
 
         if (accum <= width) {
             // NOTE: quests.txt #807 uses extended ascii.
@@ -666,11 +682,13 @@ static int FtFonteWordWrapImpl(const char* string, int width, short* breakpoints
             }
 
             if (prevSpaceOrHyphen != -1) {
-                // Word wrap.
+                // Word wrap. `prevSpaceOrHyphen` is already the byte offset
+                // just past the space or hyphen, so the new line starts there
+                // and the running offset continues from the same value.
                 breakpoints[*breakpointsLengthPtr] = prevSpaceOrHyphen;
 
                 i = uint32Index + 1;
-                CharIndex = prevSpaceOrHyphen + 1;
+                CharIndex = prevSpaceOrHyphen;
             } else {
                 // Character wrap.
                 breakpoints[*breakpointsLengthPtr] = PreCharIndex;
