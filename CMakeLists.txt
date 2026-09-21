@@ -97,6 +97,8 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
     "src/file_utils.h"
     "src/font_manager.cc"
     "src/font_manager.h"
+    "src/freetype_manager.cc"
+    "src/freetype_manager.h"
     "src/game_config.cc"
     "src/game_config.h"
     "src/game_dialog.cc"
@@ -399,6 +401,30 @@ endif()
 if(FALLOUT_BUILD_CONTROLLER_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+# TrueType font support (src/freetype_manager.cc) needs FreeType for
+# rasterization and iconv to convert the game's legacy 8-bit encodings
+# (for example GBK) to Unicode.
+#
+# NOTE: the vendored FreeType build uses third_party/freetype/ftoption.h, which
+# enables `TT_CONFIG_OPTION_SUBPIXEL_HINTING 2`. A system FreeType (2.13+)
+# dropped that option, so glyphs hinted through a system copy will differ
+# slightly from the vendored one. Keep FALLOUT_VENDORED on for release builds.
+if(FALLOUT_VENDORED)
+    add_subdirectory("third_party/freetype")
+    target_link_libraries(${EXECUTABLE_NAME} ${FREETYPE_LIBRARIES})
+    target_include_directories(${EXECUTABLE_NAME} PRIVATE ${FREETYPE_INCLUDE_DIRS})
+
+    add_subdirectory("third_party/iconv")
+    target_link_libraries(${EXECUTABLE_NAME} ${ICONV_LIBRARIES})
+    target_include_directories(${EXECUTABLE_NAME} PRIVATE ${ICONV_INCLUDE_DIRS})
+else()
+    find_package(Freetype REQUIRED)
+    target_link_libraries(${EXECUTABLE_NAME} Freetype::Freetype)
+
+    find_package(Iconv REQUIRED)
+    target_link_libraries(${EXECUTABLE_NAME} Iconv::Iconv)
 endif()
 
 if(APPLE)

@@ -8,6 +8,8 @@
 #include "memory.h"
 #include "platform_compat.h"
 
+#include "word_wrap.h"
+
 namespace fallout {
 
 // The maximum number of text fonts.
@@ -62,6 +64,7 @@ FontManager gTextFontManager = {
     textFontGetLetterSpacingImpl,
     textFontGetBufferSizeImpl,
     textFontGetMonospacedCharacterWidthImpl,
+    leagcyWordWrap,
 };
 
 // 0x51E3B0
@@ -94,6 +97,11 @@ FontManagerGetBufferSizeProc* fontGetBufferSize = nullptr;
 // 0x51E3D4
 FontManagerGetMonospacedCharacterWidth* fontGetMonospacedCharacterWidth = nullptr;
 
+// The word wrapping routine of the currently selected font manager.
+//
+// Defaults to the legacy (bitmap font) implementation so that text laid out
+// before the first `fontSetCurrent` call still wraps correctly.
+FontManageWordWrapProc* wordWrap = leagcyWordWrap;
 // 0x6ADB08
 static TextFontDescriptor gTextFontDescriptors[TEXT_FONT_MAX];
 
@@ -281,6 +289,7 @@ void fontSetCurrent(int font)
         fontGetLetterSpacing = fontManager->getLetterSpacingProc;
         fontGetBufferSize = fontManager->getBufferSizeProc;
         fontGetMonospacedCharacterWidth = fontManager->getMonospacedCharacterWidthProc;
+        wordWrap = fontManager->wordWrap;
 
         gCurrentFont = font;
 
@@ -427,5 +436,4 @@ static int textFontGetMonospacedCharacterWidthImpl()
 
     return width + gCurrentTextFontDescriptor->letterSpacing;
 }
-
 } // namespace fallout
