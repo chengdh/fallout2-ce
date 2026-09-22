@@ -1,5 +1,6 @@
 #include "gamepad.h"
 #include "gamepad_internal.h"
+#include "gamepad_l10n.h"
 #include "gamepad_movement.h"
 
 #include <SDL.h>
@@ -413,6 +414,21 @@ int main(int, char**)
     CHECK(pad::state.settings.bindings[SDL_CONTROLLER_BUTTON_BACK] == pad::Panel);
     pad::state.settings = pad::defaults();
 
+    // The overlay follows `[system] language`. Only the Chinese translation
+    // changes the strings; every other language keeps English.
+    gamepadSetLanguage("english");
+    CHECK(!pad::isChinese());
+    gamepadSetLanguage("chs");
+    CHECK(pad::isChinese());
+    gamepadSetLanguage("CHS");
+    CHECK(pad::isChinese());
+    gamepadSetLanguage("chinese");
+    CHECK(pad::isChinese());
+    gamepadSetLanguage("french");
+    CHECK(!pad::isChinese());
+    gamepadSetLanguage("english");
+    CHECK(!pad::isChinese());
+
     // Render every page with no game assets. Pixel captures also allow visual
     // review of the actual production overlay at native and wide resolutions.
     for (auto size : { std::make_pair(640, 480), std::make_pair(1280, 720) }) {
@@ -444,6 +460,72 @@ int main(int, char**)
         SDL_DestroyRenderer(renderer);
         SDL_FreeSurface(surface);
     }
+
+    // The prompt bar in English, so both languages can be compared side by side.
+    for (auto size : { std::make_pair(640, 480), std::make_pair(1280, 720) }) {
+        SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, size.first, size.second, 32, SDL_PIXELFORMAT_ARGB8888);
+        CHECK(surface);
+        SDL_Renderer* renderer = SDL_CreateSoftwareRenderer(surface);
+        CHECK(renderer);
+        SDL_RenderSetLogicalSize(renderer, size.first, size.second);
+        pad::setOpen(false);
+        pad::state.used = true;
+        pad::state.active = 0;
+        pad::state.worldContext = true;
+        pad::state.lastUse = SDL_GetTicks();
+        SDL_SetRenderDrawColor(renderer, 32, 29, 23, 255);
+        SDL_RenderClear(renderer);
+        gamepadRender(renderer);
+        SDL_RenderPresent(renderer);
+        char promptFile[80];
+        snprintf(promptFile, sizeof(promptFile), "controller-en-%dx%d-prompt.bmp", size.first, size.second);
+        CHECK(SDL_SaveBMP(surface, promptFile) == 0);
+        SDL_DestroyRenderer(renderer);
+        SDL_FreeSurface(surface);
+    }
+
+    // Same capture in Chinese, plus the prompt bar the overlay draws while the
+    // panel is closed. These are the two surfaces the translation touches.
+    gamepadSetLanguage("chs");
+    bool previousUsed = pad::state.used;
+    bool previousWorldContext = pad::state.worldContext;
+    int previousActive = pad::state.active;
+    for (auto size : { std::make_pair(640, 480), std::make_pair(1280, 720) }) {
+        SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, size.first, size.second, 32, SDL_PIXELFORMAT_ARGB8888);
+        CHECK(surface);
+        SDL_Renderer* renderer = SDL_CreateSoftwareRenderer(surface);
+        CHECK(renderer);
+        SDL_RenderSetLogicalSize(renderer, size.first, size.second);
+        for (int page = 0; page < 4; ++page) {
+            SDL_SetRenderDrawColor(renderer, 32, 29, 23, 255);
+            SDL_RenderClear(renderer);
+            pad::setOpen(true, page);
+            gamepadRender(renderer);
+            SDL_RenderPresent(renderer);
+            char filename[80];
+            snprintf(filename, sizeof(filename), "controller-chs-%dx%d-page%d.bmp", size.first, size.second, page);
+            CHECK(SDL_SaveBMP(surface, filename) == 0);
+        }
+        // The prompt bar needs an attached device and recent input to show up.
+        pad::setOpen(false);
+        pad::state.used = true;
+        pad::state.active = 0;
+        pad::state.worldContext = true;
+        pad::state.lastUse = SDL_GetTicks();
+        SDL_SetRenderDrawColor(renderer, 32, 29, 23, 255);
+        SDL_RenderClear(renderer);
+        gamepadRender(renderer);
+        SDL_RenderPresent(renderer);
+        char promptFile[80];
+        snprintf(promptFile, sizeof(promptFile), "controller-chs-%dx%d-prompt.bmp", size.first, size.second);
+        CHECK(SDL_SaveBMP(surface, promptFile) == 0);
+        SDL_DestroyRenderer(renderer);
+        SDL_FreeSurface(surface);
+    }
+    gamepadSetLanguage("english");
+    pad::state.used = previousUsed;
+    pad::state.worldContext = previousWorldContext;
+    pad::state.active = previousActive;
 
     pad::setOpen(false);
     pump();

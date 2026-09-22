@@ -2,7 +2,12 @@ add_executable(controller-tests
     gamepad_test.cc
     ../src/gamepad.cc
     ../src/gamepad_ui.cc
+    ../src/gamepad_l10n.cc
 )
+# Keep the overlay's Chinese literals as UTF-8 on MSVC, as the game build does.
+if(MSVC)
+    set_source_files_properties("../src/gamepad_l10n.cc" PROPERTIES COMPILE_OPTIONS "/utf-8")
+endif()
 target_include_directories(controller-tests PRIVATE ../src ${SDL2_INCLUDE_DIRS})
 target_link_libraries(controller-tests PRIVATE ${SDL2_LIBRARIES})
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/run")

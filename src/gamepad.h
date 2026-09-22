@@ -9,6 +9,10 @@ namespace fallout {
 using GamepadKeyHandler = void (*)(SDL_Scancode key, bool down);
 using GamepadTextHandler = void (*)(int character);
 void gamepadInit(const char* gameId, GamepadKeyHandler keys, GamepadTextHandler text, SDL_Window* window = nullptr);
+// Localizes the controller overlay from the game's `[system] language` value.
+// Only English and the Chinese translation are translated; anything else keeps
+// the English strings. Call it after the game settings are loaded.
+void gamepadSetLanguage(const char* language);
 void gamepadExit();
 bool gamepadHandleEvent(const SDL_Event& event);
 void gamepadUpdate();

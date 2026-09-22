@@ -11,6 +11,7 @@
 #include "kb.h"
 #include "memory.h"
 #include "mouse.h"
+#include "settings.h"
 #include "svga.h"
 #include "text_font.h"
 #include "touch.h"
@@ -141,6 +142,9 @@ int inputInit(int a1)
     buildNormalizedQwertyKeys();
     _GNW95_clear_time_stamps();
     gamepadInit("fallout2-ce", gamepadKey, gamepadCharacter, gSdlWindow);
+    // The overlay is drawn by the controller module, so it has to be told which
+    // language the game's own text is in. Settings are already loaded here.
+    gamepadSetLanguage(settings.system.language.c_str());
 
     _using_msec_timer = a1;
     gInputEventQueueWriteIndex = 0;

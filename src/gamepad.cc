@@ -1,5 +1,7 @@
 #include "gamepad_internal.h"
 
+#include "gamepad_l10n.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -201,7 +203,7 @@ static SDL_GameController* activeHandle()
 const char* deviceName()
 {
     auto* handle = activeHandle();
-    if (!handle) return state.unmapped ? "UNMAPPED DEVICE - SEE HELP" : "NO CONTROLLER CONNECTED";
+    if (!handle) return state.unmapped ? l10n(TextUnmappedDevice) : l10n(TextNoController);
     const char* name = SDL_GameControllerName(handle);
     return name ? name : "SDL CONTROLLER";
 }
@@ -225,15 +227,20 @@ const char* buttonName(int button)
         { "B", "A", "Y", "X" },
         { "SOUTH", "EAST", "WEST", "NORTH" },
     };
-    if (button >= 0 && button <= 3) return faces[style - 1][button];
+    if (button >= 0 && button <= 3) {
+        // The compass names describe a position rather than a printed glyph, so
+        // unlike A/B/X/Y they can be translated.
+        if (style == 4) return faceLabel(button);
+        return faces[style - 1][button];
+    }
     switch (button) {
-    case SDL_CONTROLLER_BUTTON_BACK: return style == 2 ? "SHARE" : style == 3 ? "MINUS" : "BACK";
-    case SDL_CONTROLLER_BUTTON_START: return style == 2 ? "OPTIONS" : style == 3 ? "PLUS" : "START";
+    case SDL_CONTROLLER_BUTTON_BACK: return style == 2 ? "SHARE" : style == 3 ? "MINUS" : l10n(TextButtonBack);
+    case SDL_CONTROLLER_BUTTON_START: return style == 2 ? "OPTIONS" : style == 3 ? "PLUS" : l10n(TextButtonStart);
     case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return style == 2 ? "L1" : "LB";
     case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return style == 2 ? "R1" : "RB";
     case SDL_CONTROLLER_BUTTON_LEFTSTICK: return "L3";
     case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return "R3";
-    default: return "BUTTON";
+    default: return l10n(TextButtonUnknown);
     }
 }
 
@@ -349,6 +356,15 @@ static void updateNavigation(float x, float y, Uint32 now)
 }
 
 } // namespace pad
+
+void gamepadSetLanguage(const char* language)
+{
+    // The overlay renders its own text, so it follows `[system] language` from
+    // fallout2.cfg rather than the engine's message files. Call this once the
+    // game settings are loaded; English is used until then and for languages
+    // the overlay has no translation for.
+    pad::setLanguage(language);
+}
 
 void gamepadInit(const char* gameId, GamepadKeyHandler keys, GamepadTextHandler text, SDL_Window* window)
 {

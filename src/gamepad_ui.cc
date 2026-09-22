@@ -1,5 +1,8 @@
 #include "gamepad_internal.h"
 
+#include "gamepad_cjk.h"
+#include "gamepad_l10n.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -25,15 +28,14 @@ static const int remappable[] = {
     SDL_CONTROLLER_BUTTON_START,
 };
 
-static const char* settingNames[] = {
-    "CURSOR SPEED", "STICK DEADZONE", "PRECISION SPEED", "SCROLL SPEED",
-    "REVERSE SCROLL", "SWAP STICKS", "BUTTON LABELS", "SHOW PROMPTS",
-    "ACTIVE CONTROLLER",
+static const TextId settingNames[9] = {
+    TextCursorSpeed, TextStickDeadzone, TextPrecisionSpeed, TextScrollSpeed,
+    TextReverseScroll, TextSwapSticks, TextButtonLabels, TextShowPrompts,
+    TextActiveController,
 };
-static const char* labelStyles[] = { "AUTO", "XBOX", "PLAYSTATION", "NINTENDO", "POSITION" };
+static const TextId tabNames[4] = { TextTabActions, TextTabSettings, TextTabKeyboard, TextTabHelp };
 static constexpr int settingCount = 21;
 static const char* letters = "1234567890QWERTYUIOPASDFGHJKL-ZXCVBNM.,'";
-static const char* keyboardTools[] = { "SPACE", "DEL", "CLEAR", "CAPS", "BKSP", "MODE", "YES", "NO", "SEND", "DONE" };
 
 void changeTab(int delta)
 {
@@ -143,7 +145,8 @@ void activate()
 }
 
 // Original 5x7 pixel alphabet. Rendered directly with SDL: no game art,
-// external fonts, GPU textures, or palette changes are required.
+// external fonts, GPU textures, or palette changes are required. Localized
+// strings mix it with the 12x12 Chinese subset in `gamepad_cjk.h`.
 static const unsigned char glyphs[][7] = {
     {14,17,17,31,17,17,17}, {30,17,17,30,17,17,30}, // AB
     {14,17,16,16,16,17,14}, {30,17,17,17,17,17,30}, // CD
@@ -187,10 +190,85 @@ static void outline(SDL_Renderer* r, int x, int y, int w, int h, Color c)
     SDL_RenderDrawRect(r, &rect);
 }
 
+// Decodes one UTF-8 sequence and moves the pointer past it. A stray byte is
+// returned as-is so that broken text still makes progress.
+static unsigned int decodeUtf8(const char*& string)
+{
+    unsigned char lead = static_cast<unsigned char>(*string++);
+    if (lead < 0x80) return lead;
+    int continuation;
+    unsigned int code;
+    if ((lead & 0xE0) == 0xC0) { code = lead & 0x1F; continuation = 1; }
+    else if ((lead & 0xF0) == 0xE0) { code = lead & 0x0F; continuation = 2; }
+    else if ((lead & 0xF8) == 0xF0) { code = lead & 0x07; continuation = 3; }
+    else return lead;
+    while (continuation-- > 0) {
+        unsigned char next = static_cast<unsigned char>(*string);
+        if ((next & 0xC0) != 0x80) break;
+        code = (code << 6) | (next & 0x3F);
+        ++string;
+    }
+    return code;
+}
+
+static const CjkGlyph* cjkGlyph(unsigned int code)
+{
+    auto found = std::lower_bound(cjkGlyphs.begin(), cjkGlyphs.end(), code,
+        [](const CjkGlyph& glyph, unsigned int value) { return glyph.code < value; });
+    if (found == cjkGlyphs.end() || found->code != code) return nullptr;
+    return &*found;
+}
+
+// Horizontal space one code point takes, in the overlay's native pixels.
+static int advanceOf(unsigned int code)
+{
+    return code < 0x80 ? 6 : cjkAdvance;
+}
+
+static int stringWidth(const char* string)
+{
+    int width = 0;
+    while (*string) width += advanceOf(decodeUtf8(string));
+    return width;
+}
+
+static void drawCjk(SDL_Renderer* r, int x, int y, unsigned int code, Color c, int scale)
+{
+    const CjkGlyph* glyph = cjkGlyph(code);
+    for (int row = 0; row < cjkCellHeight; ++row) {
+        for (int column = 0; column < cjkCellWidth; ++column) {
+            bool set;
+            if (glyph != nullptr) {
+                set = (glyph->rows[row] & (1 << (cjkCellWidth - 1 - column))) != 0;
+            } else {
+                // Missing glyphs fall back to a hollow box, the usual pixel UI
+                // marker for text this build does not carry.
+                set = row == 0 || row == cjkCellHeight - 1 || column == 0 || column == cjkCellWidth - 1;
+            }
+            if (set) box(r, x + column * scale, y + row * scale, scale, scale, c);
+        }
+    }
+}
+
+// Draws one line of overlay text. ASCII uses the built-in 5x7 alphabet and
+// every other code point the 12x12 Chinese subset, so a translated string can
+// mix "L3" with ideographs. `maxChars` stays counted in Latin characters to
+// keep the original call sites honest: single byte strings clip exactly as
+// before, and full width scripts merely run out of room sooner.
 static void text(SDL_Renderer* r, int x, int y, const char* string, Color c = green, int scale = 1, int maxChars = 90)
 {
-    for (int index = 0; string[index] && index < maxChars; ++index, x += 6 * scale) {
-        unsigned char ch = static_cast<unsigned char>(std::toupper(static_cast<unsigned char>(string[index])));
+    int origin = x;
+    int limit = maxChars * 6 * scale;
+    while (*string) {
+        unsigned int code = decodeUtf8(string);
+        int advance = advanceOf(code);
+        if (x - origin + advance * scale > limit) break;
+        if (code >= 0x80) {
+            drawCjk(r, x, y + cjkVerticalOffset * scale, code, c, scale);
+            x += advance * scale;
+            continue;
+        }
+        unsigned char ch = static_cast<unsigned char>(std::toupper(static_cast<unsigned char>(code)));
         const unsigned char* bits = nullptr;
         if (ch >= 'A' && ch <= 'Z') bits = glyphs[ch - 'A'];
         if (ch >= '0' && ch <= '9') bits = glyphs[26 + ch - '0'];
@@ -218,6 +296,7 @@ static void text(SDL_Renderer* r, int x, int y, const char* string, Color c = gr
         for (int row = 0; row < 7; ++row) for (int col = 0; col < 5; ++col) {
             if (bits[row] & (1 << (4 - col))) box(r, x + col * scale, y + row * scale, scale, scale, c);
         }
+        x += advance * scale;
     }
 }
 
@@ -238,35 +317,35 @@ static void settingsPage(SDL_Renderer* r)
         if (row == selected) { box(r, 78, y - 7, 484, 24, { 42, 63, 36 }); text(r, 85, y, ">", amber); }
         char name[80];
         char value[80];
-        if (row < 9) snprintf(name, sizeof(name), "%s", settingNames[row]);
-        else if (row < 18) snprintf(name, sizeof(name), "%s BINDING", buttonName(remappable[row - 9]));
-        else if (row == 18) snprintf(name, sizeof(name), "RESTORE DEFAULT CONTROLS");
-        else if (row == 19) snprintf(name, sizeof(name), "GAMEPLAY STICK MODE");
-        else snprintf(name, sizeof(name), "DISPLAY MODE");
+        if (row < 9) snprintf(name, sizeof(name), "%s", l10n(settingNames[row]));
+        else if (row < 18) snprintf(name, sizeof(name), l10n(TextBinding), buttonName(remappable[row - 9]));
+        else if (row == 18) snprintf(name, sizeof(name), "%s", l10n(TextRestoreDefaults));
+        else if (row == 19) snprintf(name, sizeof(name), "%s", l10n(TextStickMode));
+        else snprintf(name, sizeof(name), "%s", l10n(TextDisplayMode));
         switch (row) {
-        case 0: snprintf(value, sizeof(value), "%d PX/SEC", s.speed); break;
-        case 1: snprintf(value, sizeof(value), "%d %%", s.deadzone); break;
-        case 2: snprintf(value, sizeof(value), "%d %%", s.precision); break;
-        case 3: snprintf(value, sizeof(value), "%d", s.scrollSpeed); break;
-        case 4: snprintf(value, sizeof(value), "%s", s.invertScroll ? "ON" : "OFF"); break;
-        case 5: snprintf(value, sizeof(value), "%s", s.swapSticks ? "ON" : "OFF"); break;
-        case 6: snprintf(value, sizeof(value), "%s", labelStyles[s.labels]); break;
-        case 7: snprintf(value, sizeof(value), "%s", s.hints ? "ON" : "OFF"); break;
-        case 8: snprintf(value, sizeof(value), "%d / %d", state.active + 1, static_cast<int>(state.devices.size())); break;
-        case 18: snprintf(value, sizeof(value), "SELECT TO RESET"); break;
-        case 19: snprintf(value, sizeof(value), "%s", s.directMovement ? "MOVE CHARACTER" : "POINT AND CLICK"); break;
-        case 20: snprintf(value, sizeof(value), "%s", s.borderless == 1 ? "BORDERLESS FULLSCREEN" : "WINDOWED"); break;
-        default: snprintf(value, sizeof(value), "%s", actions[s.bindings[remappable[row - 9]]].name); break;
+        case 0: snprintf(value, sizeof(value), l10n(TextSpeedValue), s.speed); break;
+        case 1: snprintf(value, sizeof(value), l10n(TextPercentValue), s.deadzone); break;
+        case 2: snprintf(value, sizeof(value), l10n(TextPercentValue), s.precision); break;
+        case 3: snprintf(value, sizeof(value), l10n(TextNumberValue), s.scrollSpeed); break;
+        case 4: snprintf(value, sizeof(value), "%s", l10n(s.invertScroll ? TextOn : TextOff)); break;
+        case 5: snprintf(value, sizeof(value), "%s", l10n(s.swapSticks ? TextOn : TextOff)); break;
+        case 6: snprintf(value, sizeof(value), "%s", labelStyleName(s.labels)); break;
+        case 7: snprintf(value, sizeof(value), "%s", l10n(s.hints ? TextOn : TextOff)); break;
+        case 8: snprintf(value, sizeof(value), l10n(TextControllerValue), state.active + 1, static_cast<int>(state.devices.size())); break;
+        case 18: snprintf(value, sizeof(value), "%s", l10n(TextResetValue)); break;
+        case 19: snprintf(value, sizeof(value), "%s", l10n(s.directMovement ? TextMoveCharacter : TextPointAndClick)); break;
+        case 20: snprintf(value, sizeof(value), "%s", l10n(s.borderless == 1 ? TextBorderless : TextWindowed)); break;
+        default: snprintf(value, sizeof(value), "%s", actionName(s.bindings[remappable[row - 9]])); break;
         }
         text(r, 100, y, name, row == selected ? green : dim);
         text(r, 373, y, value, row == selected ? amber : dim, 1, 29);
     }
     char footer[90];
-    snprintf(footer, sizeof(footer), "PAGE %d/3  -  UP/DOWN SELECT  -  LEFT/RIGHT ADJUST", selected / 7 + 1);
+    snprintf(footer, sizeof(footer), l10n(TextPageValue), selected / 7 + 1);
     text(r, 82, 348, footer, dim);
-    text(r, 82, 369, state.displayFailed ? "DISPLAY CHANGE FAILED - TRY ALT+ENTER AGAIN"
-        : state.saveFailed ? "COULD NOT SAVE - SETTINGS APPLY FOR THIS SESSION"
-        : "AUTO SAVE  -  ALT+ENTER: BORDERLESS / WINDOWED", (state.displayFailed || state.saveFailed) ? amber : dim);
+    text(r, 82, 369, state.displayFailed ? l10n(TextDisplayFailed)
+        : state.saveFailed ? l10n(TextSaveFailed)
+        : l10n(TextAutoSave), (state.displayFailed || state.saveFailed) ? amber : dim);
 }
 
 static void keyboardPage(SDL_Renderer* r)
@@ -274,8 +353,9 @@ static void keyboardPage(SDL_Renderer* r)
     box(r, 80, 140, 480, 29, { 8, 17, 12 });
     text(r, 88, 150, state.typed.c_str(), green, 1, 24);
     text(r, 88 + static_cast<int>(state.typed.size()) * 6, 150, "_", amber);
-    char count[30];
-    snprintf(count, sizeof(count), "%d/24  %s", static_cast<int>(state.typed.size()), state.caps ? "CAPS" : "abc");
+    char count[40];
+    snprintf(count, sizeof(count), l10n(TextKeyboardCount), static_cast<int>(state.typed.size()),
+        l10n(state.caps ? TextKeyboardUppercase : TextKeyboardLowercase));
     text(r, 466, 150, count, dim);
     for (int i = 0; i < 50; ++i) {
         int x = 80 + (i % 10) * 48;
@@ -284,32 +364,18 @@ static void keyboardPage(SDL_Renderer* r)
         box(r, x, y, 44, 25, selected ? Color { 48, 72, 40 } : Color { 24, 40, 27 });
         outline(r, x, y, 44, 25, selected ? amber : dim);
         char letter[2] = { i < 40 ? letters[i] : ' ', 0 };
-        const char* label = i < 40 ? letter : keyboardTools[i - 40];
-        text(r, x + (44 - static_cast<int>(strlen(label)) * 6) / 2, y + 9, label, selected ? amber : green);
+        const char* label = i < 40 ? letter : keyboardToolName(i - 40);
+        text(r, x + (44 - stringWidth(label)) / 2, y + 9, label, selected ? amber : green);
     }
-    text(r, 82, 340, "SEND TYPES TEXT. DONE TYPES TEXT AND PRESSES ENTER.", dim);
-    text(r, 82, 356, state.replaceText ? "MODE: REPLACE FIELD. DEL EDITS BUFFER. BKSP EDITS GAME." : "MODE: APPEND TO FIELD. SELECT MODE TO CHANGE.", dim);
-    text(r, 82, 372, "USE DIGITS FOR DIALOGUE CHOICES AND ITEM QUANTITIES.", dim);
+    text(r, 82, 340, l10n(TextKeyboardSendHint), dim);
+    text(r, 82, 356, l10n(state.replaceText ? TextKeyboardReplaceHint : TextKeyboardAppendHint), dim);
+    text(r, 82, 372, l10n(TextKeyboardDigitsHint), dim);
 }
 
 static void helpPage(SDL_Renderer* r)
 {
-    text(r, 82, 143, "VAULT-TEC FIELD OPERATING INSTRUCTIONS", amber);
-    const char* lines[] = {
-        "LEFT STICK : MOVE / CURSOR  L3 : SWITCH MODE",
-        "LEFT TRIGGER : PRECISION    RIGHT TRIGGER : CLICK",
-        "HOLD CLICK TO DRAG ITEMS OR OPEN OBJECT ACTIONS.",
-        "D-PAD : ARROW KEYS / LISTS / CAMERA",
-        "BACK / SHARE / MINUS OR F11 : CONTROL PANEL",
-        "IN PANEL : D-PAD SELECTS. SHOULDERS CHANGE TABS.",
-        "TEXT FIELDS OPEN THE KEYBOARD AFTER PAD INPUT.",
-        "USE SETTINGS TO CHANGE BUTTONS, SPEED AND LABELS.",
-        "SDL MAPPINGS SUPPORT USB AND BLUETOOTH GAMEPADS.",
-        "UNMAPPED PAD? ADD ITS SDL2 MAPPING TO",
-        "GAMECONTROLLERDB.TXT BESIDE THE GAME EXECUTABLE.",
-        "MENUS USE CURSOR. COMBAT MOVEMENT USES AP.",
-    };
-    for (int i = 0; i < 12; ++i) text(r, 82, 164 + i * 17, lines[i], i < 7 ? green : dim);
+    text(r, 82, 143, l10n(TextHelpTitle), amber);
+    for (int i = 0; i < helpLineCount(); ++i) text(r, 82, 164 + i * 17, helpLine(i), i < 7 ? green : dim);
 }
 
 void render(SDL_Renderer* r)
@@ -332,15 +398,15 @@ void render(SDL_Renderer* r)
     if (!state.open) {
         box(r, 12, 10, 616, 38, shadow);
         outline(r, 12, 10, 616, 38, metal);
-        char hint[150];
-        snprintf(hint, sizeof(hint), "%s: %s   %s: %s   %s: PANEL   LT: PRECISION",
-            buttonName(SDL_CONTROLLER_BUTTON_A), actions[state.settings.bindings[SDL_CONTROLLER_BUTTON_A]].name,
-            buttonName(SDL_CONTROLLER_BUTTON_B), actions[state.settings.bindings[SDL_CONTROLLER_BUTTON_B]].name,
+        char hint[200];
+        snprintf(hint, sizeof(hint), l10n(TextPromptBar),
+            buttonName(SDL_CONTROLLER_BUTTON_A), actionName(state.settings.bindings[SDL_CONTROLLER_BUTTON_A]),
+            buttonName(SDL_CONTROLLER_BUTTON_B), actionName(state.settings.bindings[SDL_CONTROLLER_BUTTON_B]),
             buttonName(SDL_CONTROLLER_BUTTON_BACK));
         text(r, 22, 19, hint, green, 1, 100);
         text(r, 22, 34, state.worldContext && state.settings.directMovement
-            ? "STICK: MOVE CHARACTER   L3: CURSOR MODE   FULL STICK: RUN"
-            : "STICK: CURSOR   L3: CHANGE GAMEPLAY MODE   RIGHT STICK: SCROLL", amber);
+            ? l10n(TextPromptMove)
+            : l10n(TextPromptCursor), amber);
     } else {
         box(r, 49, 51, 548, 384, { 6, 9, 7 });
         box(r, 42, 44, 548, 384, metal);
@@ -349,13 +415,12 @@ void render(SDL_Renderer* r)
         for (int y = 54; y < 420; y += 4) box(r, 49, y, 534, 1, { 71, 72, 57 });
         box(r, 62, 64, 508, 38, shadow);
         text(r, 76, 76, "VAULT-TEC", amber, 2);
-        text(r, 240, 72, "CONTROLLER INTERFACE", green);
+        text(r, 240, 72, l10n(TextTitle), green);
         text(r, 240, 88, deviceName(), dim, 1, 52);
         box(r, 550, 76, 8, 8, state.active >= 0 ? green : Color { 150, 64, 47 });
-        static const char* tabs[] = { "ACTIONS", "SETTINGS", "KEYBOARD", "HELP" };
         for (int i = 0; i < 4; ++i) {
             box(r, 66 + i * 127, 108, 124, 22, i == state.tab ? Color { 43, 64, 37 } : shadow);
-            text(r, 83 + i * 127, 116, tabs[i], i == state.tab ? amber : dim);
+            text(r, 83 + i * 127, 116, l10n(tabNames[i]), i == state.tab ? amber : dim);
         }
         box(r, 66, 134, 500, 252, screen);
         outline(r, 65, 133, 502, 254, shadow);
@@ -367,14 +432,14 @@ void render(SDL_Renderer* r)
                 bool selected = state.selection[0] == i;
                 box(r, x, y, 116, 29, selected ? Color { 43, 66, 37 } : Color { 23, 38, 26 });
                 outline(r, x, y, 116, 29, selected ? amber : dim);
-                text(r, x + 7, y + 11, actions[quickActions[i]].name, selected ? amber : green);
+                text(r, x + 7, y + 11, actionName(quickActions[i]), selected ? amber : green);
             }
-            text(r, 82, 365, "SHORTCUTS USE THE CURRENT GAME SCREEN'S KEY BINDINGS.", dim);
+            text(r, 82, 365, l10n(TextActionsHint), dim);
         } else if (state.tab == 1) settingsPage(r);
         else if (state.tab == 2) keyboardPage(r);
         else helpPage(r);
-        char footer[120];
-        snprintf(footer, sizeof(footer), "%s SELECT   %s CLOSE   %s/%s TABS   D-PAD NAVIGATE",
+        char footer[160];
+        snprintf(footer, sizeof(footer), l10n(TextFooter),
             buttonName(SDL_CONTROLLER_BUTTON_A), buttonName(SDL_CONTROLLER_BUTTON_B),
             buttonName(SDL_CONTROLLER_BUTTON_LEFTSHOULDER), buttonName(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER));
         text(r, 67, 400, footer, amber, 1, 83);

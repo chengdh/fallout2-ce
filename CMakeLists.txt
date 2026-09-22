@@ -255,6 +255,9 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
     "src/gamepad_world.cc"
     "src/gamepad_movement.h"
     "src/gamepad_ui.cc"
+    "src/gamepad_cjk.h"
+    "src/gamepad_l10n.cc"
+    "src/gamepad_l10n.h"
     "src/gamepad.h"
     "src/gamepad_internal.h"
     "src/audio_engine.cc"
@@ -307,6 +310,13 @@ if(WIN32)
         NOMINMAX
         WIN32_LEAN_AND_MEAN
     )
+endif()
+
+# The controller overlay's Chinese strings are UTF-8 literals. Without this,
+# MSVC transcodes them to the local code page and the overlay would draw
+# mojibake instead of the translation. GCC and Clang always read UTF-8 source.
+if(MSVC)
+    set_source_files_properties("src/gamepad_l10n.cc" PROPERTIES COMPILE_OPTIONS "/utf-8")
 endif()
 
 if(WIN32)

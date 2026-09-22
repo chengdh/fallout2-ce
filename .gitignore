@@ -393,3 +393,6 @@ FodyWeavers.xsd
 /build
 /build-*
 CMakeUserPresets.json
+
+# WorkBuddy agent session data
+.workbuddy/
