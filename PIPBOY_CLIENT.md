@@ -1,5 +1,9 @@
 # Pip-Boy Client 实施计划
 
+> **状态：第二阶段已开工。** 客户端项目已建在 `/Volumes/macos-1T/myprojects/pipboy-client`
+> （独立 git 仓库，`ui/` + `android/` + `tools/`），README 里有构建步骤。
+> 本文档保留为设计依据；实施细节以客户端项目 README 为准。
+
 服务端（`src/pipboy_server.cc`，协议见 `PIPBOY.md`）已完成。本文档是**第二阶段**
 的实施依据：独立 App，运行在下屏，界面来自 `rzx007/Pip-Boy`。
 

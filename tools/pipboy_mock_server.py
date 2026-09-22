@@ -39,13 +39,17 @@ MAX_PAYLOAD = 1024 * 1024
 SAMPLE_INTERVAL_MS = 250
 
 
-def flatten(prefix: str, value, out: Dict[str, str]) -> None:
-    """Flatten nested JSON-ish data into 'dotted.path' -> JSON-encoded value."""
+def flatten(prefix: str, value, out) -> None:
+    """Flatten nested data into 'dotted.path' -> value.
+
+    Values keep their native JSON type: the C++ server emits `jsonInt`-style
+    numbers, and a client must not have to guess whether 63 is 63 or "63".
+    """
     if isinstance(value, dict):
         for key, item in value.items():
             flatten(f"{prefix}.{key}" if prefix else key, item, out)
     else:
-        out[prefix] = json.dumps(value, ensure_ascii=False)
+        out[prefix] = value
 
 
 def base_snapshot() -> Dict[str, str]:
@@ -241,12 +245,12 @@ def serve(conn: socket.socket, scenario: str) -> None:
             hp = random.randint(40, 78)
             caps = int(snapshot["Inventory.caps"]) + random.randint(-5, 5)
             hour = (int(float(snapshot["PlayerInfo.TimeHour"])) + 1) % 24
-            snapshot["PlayerInfo.CurrHP"] = json.dumps(hp)
-            snapshot["Conditions.Radiation"] = json.dumps(random.randint(0, 30))
-            snapshot["Inventory.caps"] = json.dumps(caps)
-            snapshot["PlayerInfo.Caps"] = json.dumps(caps)
-            snapshot["PlayerInfo.TimeHour"] = json.dumps(hour)
-        snapshot["Server.UptimeSec"] = json.dumps(int(now - started))
+            snapshot["PlayerInfo.CurrHP"] = hp
+            snapshot["Conditions.Radiation"] = random.randint(0, 30)
+            snapshot["Inventory.caps"] = caps
+            snapshot["PlayerInfo.Caps"] = caps
+            snapshot["PlayerInfo.TimeHour"] = hour
+        snapshot["Server.UptimeSec"] = int(now - started)
 
         delta = {k: v for k, v in snapshot.items() if last_sent.get(k) != v}
         if delta:
