@@ -26,6 +26,7 @@
 #include "mouse.h"
 #include "object.h"
 #include "palette.h"
+#include "pipboy_server.h"
 #include "platform_compat.h"
 #include "preferences.h"
 #include "proto.h"
@@ -223,6 +224,8 @@ int falloutMain(int argc, char** argv)
     // NOTE: Uninline.
     main_exit_system();
 
+    pipboyServerExit();
+
     autorunMutexClose();
 
     return 0;
@@ -234,6 +237,9 @@ static bool falloutInit(int argc, char** argv)
     if (gameInitWithOptions("FALLOUT II", false, 0, 0, argc, argv) == -1) {
         return false;
     }
+
+    // Pip-Boy Link: only binds a socket if enabled in fallout2.cfg.
+    pipboyServerInit();
 
     return true;
 }
@@ -335,6 +341,18 @@ static void mainLoop()
         sfall_gl_scr_process_main();
 
         gameHandleKey(keyCode, false);
+
+        // Pip-Boy Link: Ctrl+P toggles the second screen server at runtime.
+        // A hotkey is used instead of an Options entry because adding an entry
+        // would require editing the localized .msg game assets.
+        if (keyCode == KEY_CTRL_P) {
+            const bool enabled = pipboyServerToggle();
+            debugPrint("Pip-Boy Link: %s\n", enabled ? "enabled" : "disabled");
+        }
+
+        // Samples game state at most once per sample_interval_ms and returns
+        // immediately when the server is off.
+        pipboyServerTick();
 
         scriptsHandleRequests();
 

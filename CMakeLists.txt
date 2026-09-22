@@ -184,6 +184,8 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
     "src/perk.h"
     "src/pipboy.cc"
     "src/pipboy.h"
+    "src/pipboy_server.cc"
+    "src/pipboy_server.h"
     "src/proto_instance.cc"
     "src/proto_instance.h"
     "src/proto_types.h"

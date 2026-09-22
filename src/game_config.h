@@ -78,6 +78,12 @@ namespace fallout {
 #define GAME_CONFIG_IGNORE_REBUILD_ERRORS_KEY "ignore_rebuild_errors"
 #define GAME_CONFIG_SHOW_PID_NUMBERS_KEY "show_pid_numbers"
 #define GAME_CONFIG_SAVE_TEXT_MAPS_KEY "save_text_maps"
+
+// Pip-Boy Link server (see PIPBOY.md).
+#define GAME_CONFIG_PIPBOY_KEY "pipboy"
+#define GAME_CONFIG_PIPBOY_ENABLED_KEY "enabled"
+#define GAME_CONFIG_PIPBOY_BIND_ADDRESS_KEY "bind_address"
+#define GAME_CONFIG_PIPBOY_SAMPLE_INTERVAL_KEY "sample_interval_ms"
 #define GAME_CONFIG_RUN_MAPPER_AS_GAME_KEY "run_mapper_as_game"
 #define GAME_CONFIG_DEFAULT_F8_AS_GAME_KEY "default_f8_as_game"
 #define GAME_CONFIG_SORT_SCRIPT_LIST_KEY "sort_script_list"

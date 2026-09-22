@@ -113,6 +113,11 @@ static void settingsFromConfig()
     settingsRead(GAME_CONFIG_MAPPER_KEY, GAME_CONFIG_RUN_MAPPER_AS_GAME_KEY, settings.mapper.run_mapper_as_game);
     settingsRead(GAME_CONFIG_MAPPER_KEY, GAME_CONFIG_DEFAULT_F8_AS_GAME_KEY, settings.mapper.default_f8_as_game);
     settingsRead(GAME_CONFIG_MAPPER_KEY, GAME_CONFIG_SORT_SCRIPT_LIST_KEY, settings.mapper.sort_script_list);
+
+    settingsRead(GAME_CONFIG_PIPBOY_KEY, GAME_CONFIG_PIPBOY_ENABLED_KEY, settings.pipboy.enabled);
+    settingsRead(GAME_CONFIG_PIPBOY_KEY, GAME_CONFIG_PORT_KEY, settings.pipboy.port);
+    settingsRead(GAME_CONFIG_PIPBOY_KEY, GAME_CONFIG_PIPBOY_BIND_ADDRESS_KEY, settings.pipboy.bind_address);
+    settingsRead(GAME_CONFIG_PIPBOY_KEY, GAME_CONFIG_PIPBOY_SAMPLE_INTERVAL_KEY, settings.pipboy.sample_interval_ms);
 }
 
 static void settingsToConfig()
@@ -187,6 +192,11 @@ static void settingsToConfig()
     settingsWrite(GAME_CONFIG_MAPPER_KEY, GAME_CONFIG_RUN_MAPPER_AS_GAME_KEY, settings.mapper.run_mapper_as_game);
     settingsWrite(GAME_CONFIG_MAPPER_KEY, GAME_CONFIG_DEFAULT_F8_AS_GAME_KEY, settings.mapper.default_f8_as_game);
     settingsWrite(GAME_CONFIG_MAPPER_KEY, GAME_CONFIG_SORT_SCRIPT_LIST_KEY, settings.mapper.sort_script_list);
+
+    settingsWrite(GAME_CONFIG_PIPBOY_KEY, GAME_CONFIG_PIPBOY_ENABLED_KEY, settings.pipboy.enabled);
+    settingsWrite(GAME_CONFIG_PIPBOY_KEY, GAME_CONFIG_PORT_KEY, settings.pipboy.port);
+    settingsWrite(GAME_CONFIG_PIPBOY_KEY, GAME_CONFIG_PIPBOY_BIND_ADDRESS_KEY, settings.pipboy.bind_address);
+    settingsWrite(GAME_CONFIG_PIPBOY_KEY, GAME_CONFIG_PIPBOY_SAMPLE_INTERVAL_KEY, settings.pipboy.sample_interval_ms);
 }
 
 static void settingsRead(const char* section, const char* key, std::string& value)

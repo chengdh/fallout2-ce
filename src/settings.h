@@ -89,12 +89,22 @@ struct MapperSettings {
     bool sort_script_list = false;
 };
 
+// Pip-Boy Link server settings. Disabled by default: when `enabled` is false no
+// socket is bound and no thread is created.
+struct PipboySettings {
+    bool enabled = false;
+    int port = 27000;
+    std::string bind_address = "127.0.0.1";
+    int sample_interval_ms = 250;
+};
+
 struct Settings {
     SystemSettings system;
     PreferencesSettings preferences;
     SoundSettings sound;
     DebugSettings debug;
     MapperSettings mapper;
+    PipboySettings pipboy;
 };
 
 extern Settings settings;

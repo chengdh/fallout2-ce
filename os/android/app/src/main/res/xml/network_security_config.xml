@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        The Pip-Boy Link server speaks plain TCP on 127.0.0.1 (see PIPBOY.md).
+        Android blocks cleartext by default on targetSdk >= 28, so loopback is
+        explicitly permitted here. No other host is whitelisted: if
+        `bind_address` is ever changed to 0.0.0.0, traffic to it stays subject to
+        the platform default policy.
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>
