@@ -20,6 +20,7 @@
 #include "map.h"
 #include "map_defs.h"
 #include "object.h"
+#include "obj_types.h"
 #include "perk.h"
 #include "perk_defs.h"
 #include "pipboy.h"
@@ -481,6 +482,17 @@ void collectSnapshot(Snapshot& out)
     out["Conditions.IsDead"] = jsonBool(critterIsDead(gDude));
     out["Conditions.IsCrippled"] = jsonBool(critterIsCrippled(gDude));
     out["Conditions.IsEncumbered"] = jsonBool(critterIsEncumbered(gDude));
+
+    // Per-body-part damage flags, so the second screen can lay condition
+    // indicators over the Vault Boy silhouette (F4 app style).
+    {
+        const unsigned int results = gDude->data.critter.combat.results;
+        out["Conditions.Eye"] = jsonBool((results & DAM_BLIND) != 0);
+        out["Conditions.ArmLeft"] = jsonBool((results & DAM_CRIP_ARM_LEFT) != 0);
+        out["Conditions.ArmRight"] = jsonBool((results & DAM_CRIP_ARM_RIGHT) != 0);
+        out["Conditions.LegLeft"] = jsonBool((results & DAM_CRIP_LEG_LEFT) != 0);
+        out["Conditions.LegRight"] = jsonBool((results & DAM_CRIP_LEG_RIGHT) != 0);
+    }
 
     // Skills. Names come from the game data, so a localized build yields
     // localized skill names on the second screen for free.
