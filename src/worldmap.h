@@ -287,6 +287,12 @@ void wmSetPartyWorldPos(int x, int y);
 void wmCarSetCurrentArea(int area);
 void wmForceEncounter(int map, unsigned int flags);
 
+// Pip-Boy Link: read access to the party's world map position, the full
+// world map size (in world coordinates) and the city area list.
+int wmGetWorldSize(int* width, int* height);
+int wmGetCityCount();
+bool wmGetCityWorldInfo(int index, const char** name, int* x, int* y, int* state);
+
 } // namespace fallout
 
 #endif /* WORLD_MAP_H */

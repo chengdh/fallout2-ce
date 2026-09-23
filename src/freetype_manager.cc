@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef __ANDROID__
+#include <dirent.h>
+#include <unistd.h>
+#endif
+
 #include "color.h"
 #include "db.h"
 #include "debug.h"
@@ -144,6 +149,11 @@ static size_t iconvConvert(iconv_t cd, const char* inbuf, size_t* inbytesleft, c
     return iconv(cd, &input, inbytesleft, &outbuf, outbytesleft);
 }
 
+const char* ftGetActiveEncoding()
+{
+    return current != nullptr ? current->encoding : nullptr;
+}
+
 static int LtoU(const char* input, size_t charInPutLen)
 {
     if (input[0] == '\x95') {
@@ -236,6 +246,25 @@ int FtFontsInit()
 {
     const char* language = settings.system.language.c_str();
     char fontDir[COMPAT_MAX_PATH];
+
+#ifdef __ANDROID__
+    {
+        char cwd[COMPAT_MAX_PATH];
+        if (getcwd(cwd, sizeof(cwd)) != nullptr) {
+            debugPrint("FT: cwd=\"%s\" language=\"%s\"\n", cwd, language);
+        }
+        DIR* probe = opendir("fonts");
+        debugPrint("FT: opendir(\"fonts\") = %s\n", probe != nullptr ? "OK" : "FAILED");
+        if (probe != nullptr) {
+            closedir(probe);
+        }
+        FILE* probeFile = compat_fopen("fonts/font.ini", "rt");
+        debugPrint("FT: fopen(\"fonts/font.ini\") = %s\n", probeFile != nullptr ? "OK" : "FAILED");
+        if (probeFile != nullptr) {
+            fclose(probeFile);
+        }
+    }
+#endif
 
     // NOTE: This port keeps one font set per language in `fonts/<language>/`,
     // while the Chinese translation of the community edition ships a single

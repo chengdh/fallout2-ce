@@ -1190,4 +1190,47 @@ void automapSetDisplayMap(int map, bool available)
     }
 }
 
+// Decodes the automap database entry for the given map/elevation into a flat
+// grid: one byte per hex tile (HEX_GRID_SIZE bytes), values 0 = empty,
+// 1 = wall, 2 = scenery. Used by the Pip-Boy Link server to stream a real
+// automap to the second screen.
+int automapGetGrid(int map, int elevation, unsigned char* out)
+{
+    if (map < 0 || elevation < 0 || elevation >= ELEVATION_COUNT || out == nullptr) {
+        return -1;
+    }
+
+    gAutomapEntry.data = (unsigned char*)internal_malloc(11024);
+    if (gAutomapEntry.data == nullptr) {
+        return -1;
+    }
+
+    if (automapLoadEntry(map, elevation) == -1) {
+        internal_free(gAutomapEntry.data);
+        gAutomapEntry.data = nullptr;
+        return -1;
+    }
+
+    // Same 2-bit-per-hex decoding as automapRenderInPipboyWindow: four hexes
+    // per byte, high two bits first.
+    const unsigned char* ptr = gAutomapEntry.data;
+    int v1 = 0;
+    unsigned char v2 = 0;
+    for (int index = 0; index < HEX_GRID_SIZE; index++) {
+        v1 -= 1;
+        if (v1 <= 0) {
+            v1 = 4;
+            v2 = *ptr++;
+        }
+
+        out[index] = (v2 & 0xC0) >> 6;
+        v2 <<= 2;
+    }
+
+    internal_free(gAutomapEntry.data);
+    gAutomapEntry.data = nullptr;
+
+    return 0;
+}
+
 } // namespace fallout

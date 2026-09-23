@@ -5,16 +5,28 @@ plugins {
 android {
     compileSdk 32
 
+    // Pin toolchain versions to what is baked into the fallout2-android-build
+    // Docker image. Leaving these unset makes AGP download its defaults
+    // (NDK 23.1.x / CMake 3.18.x), which fails on this offline build host.
+    ndkVersion '23.2.8568313'
+
     defaultConfig {
         applicationId 'com.alexbatalov.fallout2ce'
         minSdk 21
         targetSdk 32
         versionCode 4
         versionName '1.3.0'
+        // Authoritative ABI restriction for the APK splits (Thor is arm64-v8a).
+        // Without this, AGP packages every ABI CMake emitted.
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
         externalNativeBuild {
             cmake {
                 arguments '-DANDROID_STL=c++_static'
-                abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+                // Test build for AYN Thor (arm64-v8a only): one ABI builds
+                // ~4x faster under QEMU than the full 4-ABI set.
+                abiFilters 'arm64-v8a'
 
                 // TODO: Remove once format issues are resolved.
                 cppFlags '-Wno-format-security'
@@ -89,6 +101,7 @@ android {
         externalNativeBuild {
             cmake {
                 path '../../../CMakeLists.txt'
+                version '3.22.1'
             }
         }
     }

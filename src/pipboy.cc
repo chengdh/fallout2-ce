@@ -1,6 +1,7 @@
 #include "pipboy.h"
 
 #include <ctype.h>
+#include <mutex>
 #include <stdio.h>
 #include <string.h>
 
@@ -223,7 +224,6 @@ static bool _AddHealth();
 static void _ClacTime(int* hours, int* minutes, int wakeUpHour);
 static int pipboyRenderScreensaver();
 static int questInit();
-static void questFree();
 static int questDescriptionCompare(const void* a1, const void* a2);
 static int holodiskInit();
 static void holodiskFree();
@@ -741,7 +741,9 @@ static void pipboyWindowFree()
     interfaceBarRefresh();
 
     // NOTE: Uninline.
-    questFree();
+    // questFree() is intentionally NOT called here: the pip-boy link server
+    // reads the quest table from its sampler thread while the window is
+    // closed. questInit() reuses the loaded table on the next window open.
 }
 
 // NOTE: Collapsed.
@@ -2445,8 +2447,20 @@ static int pipboyRenderScreensaver()
 }
 
 // 0x49A5D4
+static std::mutex gQuestsInitMutex;
+
 static int questInit()
 {
+    std::lock_guard<std::mutex> lock(gQuestsInitMutex);
+
+    // The pip-boy link server reads the quest table from its sampler thread,
+    // including while no pip-boy window is open. Keep the table loaded across
+    // window sessions: once loaded, subsequent opens reuse it instead of
+    // freeing and reallocating (which could invalidate a concurrent read).
+    if (gQuestsCount > 0 && gQuestDescriptions != nullptr) {
+        return 0;
+    }
+
     if (gQuestDescriptions != nullptr) {
         internal_free(gQuestDescriptions);
         gQuestDescriptions = nullptr;
@@ -2543,18 +2557,9 @@ err:
     return -1;
 }
 
-// 0x49A7E4
-static void questFree()
-{
-    if (gQuestDescriptions != nullptr) {
-        internal_free(gQuestDescriptions);
-        gQuestDescriptions = nullptr;
-    }
-
-    gQuestsCount = 0;
-
-    messageListFree(&gQuestsMessageList);
-}
+// NOTE: The original `questFree` (0x49A7E4) was removed: the quest table is
+// kept loaded for the lifetime of the process so the pip-boy link server can
+// read it while no pip-boy window is open (see questInit).
 
 // 0x49A818
 static int questDescriptionCompare(const void* a1, const void* a2)
@@ -2646,6 +2651,62 @@ static void holodiskFree()
     }
 
     gHolodisksCount = 0;
+}
+
+// Pip-Boy Link: read access to the quest metadata loaded from
+// `data/quests.txt`, plus the localized quest texts. Used by the second
+// screen server to build its quest list without duplicating the parser.
+
+int pipboyQuestsGetCount()
+{
+    return gQuestsCount;
+}
+
+int pipboyQuestsEnsureLoaded()
+{
+    if (gQuestsCount == 0) {
+        if (questInit() == -1) {
+            return 0;
+        }
+    }
+    return gQuestsCount;
+}
+
+bool pipboyQuestsGetEntry(int index, int* location, int* description, int* gvar, int* displayThreshold, int* completedThreshold)
+{
+    if (index < 0 || index >= gQuestsCount || gQuestDescriptions == nullptr) {
+        return false;
+    }
+
+    const QuestDescription* quest = &(gQuestDescriptions[index]);
+    if (location != nullptr) {
+        *location = quest->location;
+    }
+    if (description != nullptr) {
+        *description = quest->description;
+    }
+    if (gvar != nullptr) {
+        *gvar = quest->gvar;
+    }
+    if (displayThreshold != nullptr) {
+        *displayThreshold = quest->displayThreshold;
+    }
+    if (completedThreshold != nullptr) {
+        *completedThreshold = quest->completedThreshold;
+    }
+    return true;
+}
+
+const char* pipboyQuestGetLocationText(int location)
+{
+    MessageListItem messageListItem;
+    return getmsg(&gMapMessageList, &messageListItem, location);
+}
+
+const char* pipboyQuestGetDescriptionText(int description)
+{
+    MessageListItem messageListItem;
+    return getmsg(&gQuestsMessageList, &messageListItem, description);
 }
 
 } // namespace fallout

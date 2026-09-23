@@ -1,6 +1,7 @@
 #include "pipboy_server.h"
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -12,9 +13,16 @@
 #include <vector>
 
 #include "critter.h"
+#include "game.h"
 #include "inventory.h"
+#include "automap.h"
+#include "freetype_manager.h"
 #include "map.h"
+#include "map_defs.h"
 #include "object.h"
+#include "perk.h"
+#include "perk_defs.h"
+#include "pipboy.h"
 #include "proto.h"
 #include "scripts.h"
 #include "settings.h"
@@ -22,6 +30,7 @@
 #include "skill_defs.h"
 #include "stat.h"
 #include "stat_defs.h"
+#include "worldmap.h"
 
 // ---------------------------------------------------------------------------
 // Platform socket glue
@@ -184,9 +193,98 @@ std::string jsonEscape(const std::string& in)
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Game-text transcoding: the game strings are encoded in the active font's
+// encoding (GBK for the Chinese localization), while the JSON protocol is
+// UTF-8. Convert with iconv so the client receives valid UTF-8 text.
+// ---------------------------------------------------------------------------
+#include <iconv.h>
+
+// GNU libiconv declares the input buffer of `iconv` as `const char**`, while
+// the copy bundled with macOS and glibc declares it as `char**`. Probe which
+// declaration is available so the call below can be spelled portably. (Same
+// trick as freetype_manager.cc.)
+template <typename InputPointer>
+static auto iconvInputProbe(InputPointer) -> decltype(iconv(std::declval<iconv_t>(), std::declval<InputPointer>(), std::declval<size_t*>(), std::declval<char**>(), std::declval<size_t*>()), std::true_type{});
+
+static std::false_type iconvInputProbe(...);
+
+using IconvInputPointer = std::conditional_t<decltype(iconvInputProbe(static_cast<const char**>(nullptr)))::value, const char*, char*>;
+
+std::string gameTextToUtf8(const std::string& in)
+{
+    const char* encoding = ftGetActiveEncoding();
+    if (encoding == nullptr || in.empty()) {
+        return in;
+    }
+    if (strcmp(encoding, "UTF-8") == 0) {
+        return in;
+    }
+
+    // One cached converter per encoding name.
+    static std::map<std::string, iconv_t> converters;
+    static std::mutex convertersMutex;
+    iconv_t cd;
+    {
+        std::lock_guard<std::mutex> lock(convertersMutex);
+        auto it = converters.find(encoding);
+        if (it == converters.end()) {
+            cd = iconv_open("UTF-8", encoding);
+            if (cd == (iconv_t)-1) {
+                // Encoding not available on this platform: pass through.
+                converters[encoding] = (iconv_t)-1;
+                return in;
+            }
+            converters[encoding] = cd;
+            it = converters.find(encoding);
+        }
+        cd = it->second;
+        if (cd == (iconv_t)-1) {
+            return in;
+        }
+    }
+
+    // Reset conversion state (iconv keeps state between calls).
+    iconv(cd, nullptr, nullptr, nullptr, nullptr);
+
+    size_t inBytesLeft = in.size();
+    IconvInputPointer input = in.data();
+    std::string out;
+    out.resize(in.size() * 4 + 16);
+    char* outPtr = &out[0];
+    size_t outBytesLeft = out.size();
+
+    while (inBytesLeft > 0) {
+        size_t rc = iconv(cd, &input, &inBytesLeft, &outPtr, &outBytesLeft);
+        if (rc != (size_t)-1) {
+            break;
+        }
+        if (errno == E2BIG) {
+            size_t used = out.size() - outBytesLeft;
+            out.resize(out.size() * 2);
+            outPtr = &out[used];
+            outBytesLeft = out.size() - used;
+            continue;
+        }
+        // EILSEQ / EINVAL: replace the offending byte with '?' and skip it so
+        // one broken character cannot sink the whole string.
+        if (inBytesLeft == 0) {
+            break;
+        }
+        input += 1;
+        inBytesLeft -= 1;
+        *outPtr = '?';
+        outPtr += 1;
+        outBytesLeft -= 1;
+    }
+
+    out.resize(out.size() - outBytesLeft);
+    return out;
+}
+
 std::string jsonString(const std::string& value)
 {
-    return "\"" + jsonEscape(value) + "\"";
+    return "\"" + jsonEscape(gameTextToUtf8(value)) + "\"";
 }
 
 std::string jsonInt(int value)
@@ -197,6 +295,90 @@ std::string jsonInt(int value)
 std::string jsonBool(bool value)
 {
     return value ? "true" : "false";
+}
+
+// ---------------------------------------------------------------------------
+// Base64 (for the automap grid blob)
+// ---------------------------------------------------------------------------
+const char* kBase64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+std::string base64Encode(const unsigned char* data, size_t size)
+{
+    std::string out;
+    out.reserve((size + 2) / 3 * 4);
+    for (size_t i = 0; i < size; i += 3) {
+        const unsigned int b0 = data[i];
+        const unsigned int b1 = i + 1 < size ? data[i + 1] : 0;
+        const unsigned int b2 = i + 2 < size ? data[i + 2] : 0;
+        const unsigned int triple = (b0 << 16) | (b1 << 8) | b2;
+        out += kBase64Chars[(triple >> 18) & 0x3F];
+        out += kBase64Chars[(triple >> 12) & 0x3F];
+        out += i + 1 < size ? kBase64Chars[(triple >> 6) & 0x3F] : '=';
+        out += i + 2 < size ? kBase64Chars[triple & 0x3F] : '=';
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Real map data (automap grid + world map), cached because collecting it
+// involves file I/O and decode work which must not run every sample tick.
+// ---------------------------------------------------------------------------
+
+// Automap grid of the current map/elevation, base64-encoded (10000 raw bytes,
+// one byte per hex tile: 0 empty, 1 wall, 2 scenery). Empty string when the
+// current map has no automap entry.
+std::string gAutomapBase64;
+int gAutomapMap = -1;
+int gAutomapElevation = -1;
+
+void refreshAutomapCache(int map, int elevation)
+{
+    if (map == gAutomapMap && elevation == gAutomapElevation) {
+        return;
+    }
+    gAutomapMap = map;
+    gAutomapElevation = elevation;
+
+    static unsigned char grid[HEX_GRID_SIZE];
+    if (automapGetGrid(map, elevation, grid) == 0) {
+        gAutomapBase64 = base64Encode(grid, HEX_GRID_SIZE);
+    } else {
+        gAutomapBase64.clear();
+    }
+}
+
+// Cities known or visited by the player, as a JSON array. Cheap to rebuild
+// every sample (a few dozen entries).
+std::string buildCitiesJson()
+{
+    std::string json = "[";
+    const int count = wmGetCityCount();
+    bool first = true;
+    for (int index = 0; index < count; index++) {
+        const char* name = nullptr;
+        int x = 0;
+        int y = 0;
+        int state = 0;
+        if (!wmGetCityWorldInfo(index, &name, &x, &y, &state)) {
+            continue;
+        }
+        // Only expose cities the player has actually discovered.
+        if (state != CITY_STATE_KNOWN && state != CITY_STATE_VISITED) {
+            continue;
+        }
+        if (!first) {
+            json += ",";
+        }
+        first = false;
+        json += "{";
+        json += "\"name\":" + jsonString(name != nullptr ? name : "");
+        json += ",\"x\":" + jsonInt(x);
+        json += ",\"y\":" + jsonInt(y);
+        json += ",\"state\":" + jsonInt(state);
+        json += "}";
+    }
+    json += "]";
+    return json;
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +492,77 @@ void collectSnapshot(Snapshot& out)
         out["Skills." + std::string(skillName)] = jsonInt(skillGetValue(gDude, skill));
     }
 
+    // Perks the critter actually has (rank > 0), with localized names and
+    // descriptions. Sent as one JSON array so the client can render it
+    // directly; diffing keeps it delta-free until something changes.
+    {
+        std::string perksJson = "[";
+        bool first = true;
+        for (int perk = 0; perk < PERK_COUNT; perk++) {
+            const int rank = perkGetRank(gDude, perk);
+            if (rank <= 0) {
+                continue;
+            }
+            const char* name = perkGetName(perk);
+            if (name == nullptr || name[0] == '\0') {
+                continue;
+            }
+            const char* description = perkGetDescription(perk);
+            if (!first) {
+                perksJson += ",";
+            }
+            first = false;
+            perksJson += "{";
+            perksJson += "\"name\":" + jsonString(name);
+            perksJson += ",\"rank\":" + jsonInt(rank);
+            perksJson += ",\"description\":" + jsonString(description != nullptr ? description : "");
+            perksJson += "}";
+        }
+        perksJson += "]";
+        out["Perks.list"] = perksJson;
+    }
+
+    // Quests currently visible in the pip-boy (gvar >= displayThreshold),
+    // with localized location (map.msg) and title (quests.msg). The quest
+    // table is loaded on demand: historically it was only populated while the
+    // in-game pip-boy window was open.
+    {
+        std::string questsJson = "[";
+        bool first = true;
+        const int count = pipboyQuestsEnsureLoaded();
+        for (int index = 0; index < count; index++) {
+            int location = 0;
+            int description = 0;
+            int gvar = 0;
+            int displayThreshold = 0;
+            int completedThreshold = 0;
+            if (!pipboyQuestsGetEntry(index, &location, &description, &gvar, &displayThreshold, &completedThreshold)) {
+                continue;
+            }
+            if (gvar < 0 || gvar >= gGameGlobalVarsLength) {
+                continue;
+            }
+            const int value = gGameGlobalVars[gvar];
+            if (value < displayThreshold) {
+                continue;
+            }
+            const char* loc = pipboyQuestGetLocationText(location);
+            const char* title = pipboyQuestGetDescriptionText(description);
+            if (!first) {
+                questsJson += ",";
+            }
+            first = false;
+            questsJson += "{";
+            questsJson += "\"id\":" + jsonInt(gvar);
+            questsJson += ",\"name\":" + jsonString(loc != nullptr ? loc : "");
+            questsJson += ",\"description\":" + jsonString(title != nullptr ? title : "");
+            questsJson += ",\"done\":" + jsonBool(value >= completedThreshold);
+            questsJson += "}";
+        }
+        questsJson += "]";
+        out["Quests.list"] = questsJson;
+    }
+
     // Inventory
     int carriedWeight = 0;
     std::vector<std::string> items;
@@ -374,6 +627,39 @@ void collectSnapshot(Snapshot& out)
     out["Map.Elevation"] = jsonInt(gElevation);
     out["Map.IsWorldmap"] = jsonBool(mapIndex < 0);
 
+    // Real map data for the Pip-Boy MAP screen.
+    if (mapIndex >= 0) {
+        // Player position in the 200x200 hex grid (row-major: x = tile % 200).
+        const int tile = gDude->tile;
+        out["Map.PlayerX"] = jsonInt(tile % HEX_GRID_WIDTH);
+        out["Map.PlayerY"] = jsonInt(tile / HEX_GRID_WIDTH);
+
+        // Automap grid from AUTOMAP.DB, cached per (map, elevation).
+        refreshAutomapCache(mapIndex, gElevation);
+        out["Map.Automap"] = jsonString(gAutomapBase64);
+    } else {
+        out["Map.PlayerX"] = jsonInt(-1);
+        out["Map.PlayerY"] = jsonInt(-1);
+        out["Map.Automap"] = jsonString("");
+    }
+
+    // World map: party position, world size and discovered cities.
+    int worldX = 0;
+    int worldY = 0;
+    wmGetPartyWorldPos(&worldX, &worldY);
+    out["Map.WorldX"] = jsonInt(worldX);
+    out["Map.WorldY"] = jsonInt(worldY);
+    int worldW = 0;
+    int worldH = 0;
+    if (wmGetWorldSize(&worldW, &worldH) == 0) {
+        out["Map.WorldW"] = jsonInt(worldW);
+        out["Map.WorldH"] = jsonInt(worldH);
+    } else {
+        out["Map.WorldW"] = jsonInt(0);
+        out["Map.WorldH"] = jsonInt(0);
+    }
+    out["Map.Cities"] = buildCitiesJson();
+
     int month = 0;
     int day = 0;
     int year = 0;
@@ -382,6 +668,7 @@ void collectSnapshot(Snapshot& out)
     out["PlayerInfo.Day"] = jsonInt(day);
     out["PlayerInfo.Year"] = jsonInt(year);
     out["PlayerInfo.TimeHour"] = jsonInt(static_cast<int>((gameTimeGetTime() / GAME_TIME_TICKS_PER_HOUR) % 24));
+    out["PlayerInfo.TimeMinute"] = jsonInt(static_cast<int>((gameTimeGetTime() / (GAME_TIME_TICKS_PER_HOUR / 60)) % 60));
 
     out["Server.SampleIntervalMs"] = jsonInt(settings.pipboy.sample_interval_ms);
     out["Server.UptimeSec"] = jsonInt(static_cast<int>((nowMs() - gServerStartedAtMs) / 1000));

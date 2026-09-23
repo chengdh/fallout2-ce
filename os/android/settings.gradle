@@ -1,15 +1,19 @@
 pluginManagement {
     repositories {
+        // Aliyun mirrors first: repo1.maven.org / plugins.gradle.org are
+        // unreliable from this network and break resolution mid-download.
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
         gradlePluginPortal()
         google()
-        mavenCentral()
+        maven { url 'https://maven.aliyun.com/repository/public' }
     }
 }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
-        mavenCentral()
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/google' }
     }
 }
 rootProject.name = "Fallout 2 Community Edition"

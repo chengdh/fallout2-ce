@@ -92,7 +92,10 @@ struct MapperSettings {
 // Pip-Boy Link server settings. Disabled by default: when `enabled` is false no
 // socket is bound and no thread is created.
 struct PipboySettings {
-    bool enabled = false;
+    // TEST BUILD: auto-start the Pip-Boy Link server so it can be exercised on
+    // a device without a keyboard (no Ctrl+P on Android). Revert to `false`
+    // before any real release — the design is opt-in via fallout2.cfg.
+    bool enabled = true;
     int port = 27000;
     std::string bind_address = "127.0.0.1";
     int sample_interval_ms = 250;

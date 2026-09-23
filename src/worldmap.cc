@@ -6671,4 +6671,49 @@ void wmForceEncounter(int map, unsigned int flags)
     }
 }
 
+// Exposes the full world map size (in world coordinates) for the
+// Pip-Boy Link server.
+int wmGetWorldSize(int* width, int* height)
+{
+    if (wmNumHorizontalTiles == 0 || wmMaxTileNum == 0) {
+        return -1;
+    }
+    if (width != nullptr) {
+        *width = WM_TILE_WIDTH * wmNumHorizontalTiles;
+    }
+    if (height != nullptr) {
+        *height = WM_TILE_HEIGHT * (wmMaxTileNum / wmNumHorizontalTiles);
+    }
+    return 0;
+}
+
+// Number of city areas loaded from the worldmap config.
+int wmGetCityCount()
+{
+    return wmMaxAreaNum;
+}
+
+// City info for the Pip-Boy Link server. `state` is one of CityState.
+bool wmGetCityWorldInfo(int index, const char** name, int* x, int* y, int* state)
+{
+    if (wmAreaInfoList == nullptr || index < 0 || index >= wmMaxAreaNum) {
+        return false;
+    }
+
+    const CityInfo& city = wmAreaInfoList[index];
+    if (name != nullptr) {
+        *name = city.name;
+    }
+    if (x != nullptr) {
+        *x = city.x;
+    }
+    if (y != nullptr) {
+        *y = city.y;
+    }
+    if (state != nullptr) {
+        *state = city.state;
+    }
+    return true;
+}
+
 } // namespace fallout

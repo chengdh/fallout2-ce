@@ -58,6 +58,11 @@ int automapGetHeader(AutomapHeader** automapHeaderPtr);
 
 void automapSetDisplayMap(int map, bool available);
 
+// Decodes the automap database entry for the given map/elevation into a flat
+// grid of HEX_GRID_SIZE bytes (one byte per hex tile): 0 = empty, 1 = wall,
+// 2 = scenery. Returns 0 on success, -1 if the entry does not exist.
+int automapGetGrid(int map, int elevation, unsigned char* out);
+
 } // namespace fallout
 
 #endif /* AUTOMAP_H */

@@ -162,11 +162,30 @@
     "Name": "The Den",        // 当前地图显示名，worldmap 上为 "World Map"
     "City": "The Den",
     "Elevation": 0,
-    "IsWorldmap": false
+    "IsWorldmap": false,
+    "PlayerX": 87,            // 玩家 200x200 六边形网格坐标（tile % 200）
+    "PlayerY": 123,           // （tile / 200）；worldmap 上为 -1
+    "Automap": "AAAA...",     // AUTOMAP.DB 解码位图，base64：10000 字节，
+                              // 每字节一格（0 空/1 墙/2 布景），按行优先
+                              // x + y*200；无 automap 条目时为 ""
+    "WorldX": 173,            // 队伍世界坐标
+    "WorldY": 122,
+    "WorldW": 4900,           // 世界地图总尺寸（世界坐标）
+    "WorldH": 4500,
+    "Cities": [               // 仅含 KNOWN/VISITED 的城镇
+      { "name": "The Den", "x": 294, "y": 181, "state": 2 }
+    ]
   },
-  "Quests": [                             // 预留：需要额外导出 pipboy.cc 内部数据
-    { "id": 0, "name": "", "description": "", "done": false }
-  ],
+  "Perks": {                             // 已拥有的 Perk（rank>0）列表（JSON 数组字符串）
+    "list": [
+      { "name": "Awareness", "rank": 1, "description": "..." }
+    ]
+  },
+  "Quests": {                            // 当前可见任务（gvar>=displayThreshold，JSON 数组字符串）
+    "list": [
+      { "id": 9, "name": "Arroyo", "description": "Kill the Evil Plants", "done": false }
+    ]
+  },
   "Server": {
     "UptimeSec": 123,
     "SampleIntervalMs": 250,

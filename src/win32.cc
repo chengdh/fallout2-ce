@@ -57,8 +57,12 @@ int main(int argc, char* argv[])
 #endif
 
 #if __ANDROID__
-    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
-    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    // Synthesize mouse events from touches so the game is playable by touch
+    // (and scriptable via `adb shell input tap`) even when no game controller
+    // is attached. The gamepad overlay consumes mouse events while open, so
+    // the two input paths do not fight.
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "1");
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");
     chdir(SDL_AndroidGetExternalStoragePath());
 #endif
 
