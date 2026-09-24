@@ -657,9 +657,18 @@ void collectSnapshot(Snapshot& out)
 
     // Real map data for the Pip-Boy MAP screen.
     if (mapIndex >= 0) {
-        // Player position in the 200x200 hex grid (row-major: x = tile % 200).
+        // Player position in the AUTOMAP bitmap space. The automap DB stores
+        // hexes with a mirrored x axis (see _decode_map_data: v1 = 200 - x,
+        // packed 4-per-byte from the high bits; the game's map view draws
+        // objects at -2*x for the same reason). Convert the hex x with the
+        // exact inverse of the storage packing so the marker shares the
+        // bitmap's coordinate space, or it moves OPPOSITE to the player.
         const int tile = gDude->tile;
-        out["Map.PlayerX"] = jsonInt(tile % HEX_GRID_WIDTH);
+        const int v1 = HEX_GRID_WIDTH - (tile % HEX_GRID_WIDTH); // 1..200
+        int col = 4 * (v1 / 4) + 3 - (v1 % 4);
+        if (col < 0) col = 0;
+        if (col > HEX_GRID_WIDTH - 1) col = HEX_GRID_WIDTH - 1;
+        out["Map.PlayerX"] = jsonInt(col);
         out["Map.PlayerY"] = jsonInt(tile / HEX_GRID_WIDTH);
 
         // Automap grid from AUTOMAP.DB, cached per (map, elevation).
