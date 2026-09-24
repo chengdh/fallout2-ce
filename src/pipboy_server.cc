@@ -15,6 +15,7 @@
 #include "critter.h"
 #include "game.h"
 #include "inventory.h"
+#include "item.h"
 #include "automap.h"
 #include "freetype_manager.h"
 #include "map.h"
@@ -624,6 +625,21 @@ void collectSnapshot(Snapshot& out)
     Object* armor = critterGetArmor(gDude);
     const char* armorName = armor != nullptr ? objectGetName(armor) : nullptr;
     out["Inventory.armor"] = jsonString(armorName != nullptr ? armorName : "");
+
+    // Equipped armor protection breakdown. FO2 armors cover the whole body;
+    // the [7] arrays are per DAMAGE TYPE (normal/laser/fire/plasma/
+    // electrical/emp/explosion), not per body part.
+    {
+        static const char* kDmgKeys[7] = {
+            "Normal", "Laser", "Fire", "Plasma", "Electrical", "Emp", "Explosion",
+        };
+        for (int i = 0; i < 7; i++) {
+            out[std::string("Armor.Dt.") + kDmgKeys[i]] =
+                jsonInt(armor != nullptr ? armorGetDamageThreshold(armor, i) : 0);
+            out[std::string("Armor.Dr.") + kDmgKeys[i]] =
+                jsonInt(armor != nullptr ? armorGetDamageResistance(armor, i) : 0);
+        }
+    }
 
     // Map / date
     const int mapIndex = mapGetCurrentMap();
