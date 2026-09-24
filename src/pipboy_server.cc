@@ -926,10 +926,13 @@ void serveClient(SocketHandle client)
                 return;
             }
             lastSent = current;
-            lastSendMs = nowMs();
         }
 
-        // Heartbeat every 2s so the client can detect a half-open socket.
+        // Heartbeat every 2s, independent of how chatty the data stream is.
+        // A moving player streams DATA_DELTA continuously (worldmap travel,
+        // combat), so gating the heartbeat on "nothing else was sent" meant a
+        // busy game never prompted the client to answer — the client then
+        // looked silent and was reaped below, over and over.
         if (nowMs() - lastSendMs > 2000) {
             if (!sendFrame(client, kMsgKeepAlive, "")) {
                 closeSocket(client);
@@ -938,8 +941,10 @@ void serveClient(SocketHandle client)
             lastSendMs = nowMs();
         }
 
-        // No bytes from the client for 15s -> assume it is gone.
-        if (nowMs() - lastRecvMs > 15000) {
+        // No bytes from the client for 30s -> assume it is gone. Healthy
+        // clients heartbeat on their own schedule; the wide margin keeps a
+        // stalled game frame from dropping a perfectly good link.
+        if (nowMs() - lastRecvMs > 30000) {
             closeSocket(client);
             return;
         }
