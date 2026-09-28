@@ -140,7 +140,17 @@
   },
   "Conditions": {                        // 部位/状态，F4 Stats 的对应项
     "HitPoints": 63, "Poison": 0, "Radiation": 12,
-    "IsDead": false, "IsCrippled": false, "IsEncumbered": false
+    "IsDead": false, "IsCrippled": false, "IsEncumbered": false,
+    // 可选：逐部位残废标记；BodyParts 缺失时客户端用它兜底（残废=0%，否则=100%）
+    "Eye": false, "ArmLeft": false, "ArmRight": false,
+    "LegLeft": false, "LegRight": false
+  },
+  "BodyParts": {                         // 可选：逐部位状况 0..100，驱动 STAT 页身体示意图的部位进度条
+    "head":      { "hp": 63 },           // 头部；与 Conditions.Eye 对应
+    "left_arm":  { "hp": 100 },          // 角色左臂（画面右侧）
+    "right_arm": { "hp": 100 },          // 角色右臂（画面左侧）
+    "left_leg":  { "hp": 100 },          // 角色左腿
+    "right_leg": { "hp": 100 }           // 角色右腿
   },
   "Skills": {                            // 技能名 -> 数值
     "Small Guns": 95, "Big Guns": 40, "Energy Weapons": 55,
@@ -200,6 +210,8 @@
 - **只增字段**：新增键不影响旧客户端（旧端忽略未知键）
 - **不改语义**：已有键的类型/含义变更 → `protocol` 必须 +1
 - 客户端遇到更高的 `server_protocol` → 提示升级，不要尝试解析
+- **可选字段可缺失**：如 `BodyParts`（逐部位状况）与 `Conditions` 的逐部位标记。
+  客户端缺失时降级显示（部位条回落到残废标记，或整条不画），不得报错
 
 ## 9. 安全边界
 
