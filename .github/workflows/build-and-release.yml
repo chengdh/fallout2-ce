@@ -1,0 +1,240 @@
+name: Build & Release
+
+# Automated multi-platform release builds.
+#
+# On every push to a tracked branch (and via manual dispatch) this workflow
+# creates a GitHub release tagged `1.0-<UTC timestamp>-<run id>` with the
+# human-readable title "Fallout2 CE 1.0+<UTC timestamp>", then builds the
+# engine for Windows (x86/x64), macOS, Linux (x86/x64), Android and iOS and
+# uploads each artifact to that release.
+#
+# Secrets used (all optional — the workflow still succeeds without them):
+#   ANDROID_RELEASE_KEYSTORE_FILE_BASE64, ANDROID_RELEASE_KEYSTORE_PROPERTIES_FILE_BASE64
+#     -> sign & ship a release Android APK; without them a debug APK is shipped.
+#   APPLE_DEVELOPER_CERTIFICATE_*  -> currently unused; macOS/iOS are built
+#     unsigned (gatekeeper/notarization can be wired up later).
+
+on:
+  push:
+    branches:
+      - pipboy-server
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: build-and-release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Compute version
+        id: meta
+        run: |
+          TS=$(date -u +%Y%m%d%H%M%S)
+          echo "version=1.0+${TS}" >> "$GITHUB_OUTPUT"
+          echo "tag=1.0-${TS}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            --title "Fallout2 CE ${VERSION}" \
+            --notes "Automated multi-platform build (Windows / macOS / Linux / Android / iOS). Version ${VERSION}."
+
+  windows:
+    name: Windows (${{ matrix.arch }})
+    needs: create-release
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            platform: x64
+          - arch: x86
+            platform: Win32
+    env:
+      TAG: ${{ needs.create-release.outputs.tag }}
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+      # FALLOUT_VENDORED=ON on Windows: there is no system iconv, so the
+      # find_package(Iconv) path cannot configure. Vendored zlib/SDL2/FreeType/
+      # libiconv are static, yielding a single self-contained .exe.
+      - name: Configure
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A ${{ matrix.platform }} -D FALLOUT_VENDORED=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Pack
+        run: |
+          cd build/Release
+          cp ../../third_party/controller-db/gamecontrollerdb.txt .
+          cp -r ../../fonts .
+          7z a fallout2-ce-windows-${{ matrix.arch }}.zip fallout2-ce.exe gamecontrollerdb.txt fonts
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" "build/Release/fallout2-ce-windows-${{ matrix.arch }}.zip"
+
+  macos:
+    name: macOS
+    needs: create-release
+    runs-on: macos-13
+    env:
+      TAG: ${{ needs.create-release.outputs.tag }}
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+      # CODE_SIGN_IDENTITY="" (from the darwin-base preset) => unsigned build.
+      - name: Configure
+        run: cmake --preset macos
+      - name: Build
+        run: cmake --build --preset macos-release
+      - name: Pack
+        run: |
+          cd out/build/macos
+          cpack -C RelWithDebInfo
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd out/build/macos
+          cp "Fallout II Community Edition.dmg" fallout2-ce-macos.dmg
+          gh release upload "$TAG" fallout2-ce-macos.dmg
+
+  linux:
+    name: Linux (${{ matrix.arch }})
+    needs: create-release
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            preset: linux-x64-release
+            deps: libsdl2-dev zlib1g-dev
+            i386: false
+          - arch: x86
+            preset: linux-x86-release
+            deps: g++-multilib libsdl2-dev:i386 zlib1g-dev:i386
+            i386: true
+    env:
+      TAG: ${{ needs.create-release.outputs.tag }}
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+      - name: Dependencies (i386)
+        if: matrix.i386
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt update
+          sudo apt install --allow-downgrades libpcre2-8-0=10.34-7
+          sudo apt install ${{ matrix.deps }}
+      - name: Dependencies (x64)
+        if: ${{ !matrix.i386 }}
+        run: |
+          sudo apt update
+          sudo apt install ${{ matrix.deps }}
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+      - name: Pack
+        run: |
+          BIN_DIR="out/build/linux-${{ matrix.arch }}-release"
+          cp third_party/controller-db/gamecontrollerdb.txt "$BIN_DIR"
+          cp -r fonts "$BIN_DIR"
+          tar -czvf fallout2-ce-linux-${{ matrix.arch }}.tar.gz -C "$BIN_DIR" fallout2-ce gamecontrollerdb.txt fonts
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" fallout2-ce-linux-${{ matrix.arch }}.tar.gz
+
+  android:
+    name: Android
+    needs: create-release
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.create-release.outputs.tag }}
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 11
+          cache: gradle
+      - name: Setup Android SDK (NDK + CMake)
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-32 build-tools;32.0.0 ndk;23.2.8568313 cmake;3.22.1 platform-tools'
+      - name: Cache cmake build
+        uses: actions/cache@v4
+        with:
+          path: os/android/app/.cxx
+          key: android-release-cmake
+      - name: Setup signing config
+        if: ${{ secrets.ANDROID_RELEASE_KEYSTORE_FILE_BASE64 != '' && secrets.ANDROID_RELEASE_KEYSTORE_PROPERTIES_FILE_BASE64 != '' }}
+        run: |
+          cd os/android
+          echo "${{ secrets.ANDROID_RELEASE_KEYSTORE_FILE_BASE64 }}" | base64 --decode > release.keystore
+          echo "${{ secrets.ANDROID_RELEASE_KEYSTORE_PROPERTIES_FILE_BASE64 }}" | base64 --decode > release-keystore.properties
+      - name: Build release APK
+        if: ${{ secrets.ANDROID_RELEASE_KEYSTORE_FILE_BASE64 != '' }}
+        run: cd os/android && ./gradlew assembleRelease
+      - name: Build debug APK (fallback, no signing)
+        if: ${{ secrets.ANDROID_RELEASE_KEYSTORE_FILE_BASE64 == '' }}
+        run: cd os/android && ./gradlew assembleDebug
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f os/android/app/build/outputs/apk/release/app-release.apk ]; then
+            SRC=os/android/app/build/outputs/apk/release/app-release.apk
+          else
+            SRC=os/android/app/build/outputs/apk/debug/app-debug.apk
+          fi
+          cp "$SRC" fallout2-ce-android.apk
+          gh release upload "$TAG" fallout2-ce-android.apk
+
+  ios:
+    name: iOS
+    needs: create-release
+    runs-on: macos-13
+    env:
+      TAG: ${{ needs.create-release.outputs.tag }}
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+      - name: Configure
+        run: cmake --preset ios
+      - name: Build
+        run: cmake --build --preset ios-release
+      - name: Pack
+        run: |
+          cd out/build/ios
+          cpack -C RelWithDebInfo
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd out/build/ios
+          cp fallout2-ce.ipa fallout2-ce-ios.ipa
+          gh release upload "$TAG" fallout2-ce-ios.ipa

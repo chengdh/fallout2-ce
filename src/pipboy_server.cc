@@ -804,6 +804,9 @@ std::string buildWelcome(bool busy)
         json += ",\"game\":" + jsonString("fallout2-ce");
         json += ",\"caps\":" + jsonString("delta,update");
         json += ",\"sample_interval_ms\":" + jsonInt(settings.pipboy.sample_interval_ms);
+        // The game's display language (e.g. "english", "chs"). The companion
+        // app mirrors it so its own UI (en/zh) matches the game the player is in.
+        json += ",\"language\":" + jsonString(settings.system.language);
     }
     json += "}";
     return json;

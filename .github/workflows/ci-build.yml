@@ -59,6 +59,11 @@ jobs:
           java-version: 11
           cache: gradle
 
+      - name: Setup Android SDK (NDK + CMake)
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-32 build-tools;32.0.0 ndk;23.2.8568313 cmake;3.22.1 platform-tools'
+
       - name: Cache cmake build
         uses: actions/cache@v4
         with:

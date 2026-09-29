@@ -1,0 +1,50 @@
+name: Build Android
+
+# Build the Android APK on every push (any branch) and on pull requests.
+# Mirrors the lightweight pipboy-client CI: this is a fast build/verify gate
+# for the Android artifact, separate from the full multi-platform
+# ci-build.yml (main only) and the release-producing build-and-release.yml.
+#
+# The native game is compiled via the Gradle externalNativeBuild (CMake), which
+# requires the exact NDK/SDK the app pins in os/android/app/build.gradle:
+#   compileSdk/targetSdk 32, ndkVersion 23.2.8568313, build-tools 32.0.0, cmake 3.22.1.
+# android-actions/setup-android installs those components (and accepts licenses),
+# so the build matches the local `docker/android-build` image.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 11
+          cache: gradle
+
+      - name: Set up Android SDK (SDK + NDK + CMake)
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-32 build-tools;32.0.0 ndk;23.2.8568313 cmake;3.22.1 platform-tools'
+
+      - name: Assemble debug APK
+        working-directory: os/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fallout2-ce-debug.apk
+          path: os/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
