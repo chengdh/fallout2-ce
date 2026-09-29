@@ -49,9 +49,6 @@
                 "type": "equals",
                 "lhs": "${hostSystemName}",
                 "rhs": "Linux"
-            },
-            "cacheVariables": {
-                "FALLOUT_VENDORED": "OFF"
             }
         },
         {

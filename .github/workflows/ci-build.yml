@@ -203,7 +203,6 @@ jobs:
           cmake \
             -B build \
             -D CMAKE_BUILD_TYPE=Debug \
-            -D FALLOUT_VENDORED=OFF \
             -D CMAKE_SYSTEM_PROCESSOR=arm \
             -D CMAKE_C_COMPILER=arm-linux-gnueabihf-gcc \
             -D CMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ \
@@ -234,7 +233,7 @@ jobs:
           sudo apt install libsdl2-dev zlib1g-dev
 
       - name: Configure
-        run: cmake -B build -D CMAKE_BUILD_TYPE=Debug -D FALLOUT_VENDORED=OFF
+        run: cmake -B build -D CMAKE_BUILD_TYPE=Debug
 
       - name: Build
         run: cmake --build build
