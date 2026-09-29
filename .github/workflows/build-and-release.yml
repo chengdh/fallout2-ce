@@ -172,6 +172,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TAG: ${{ needs.create-release.outputs.tag }}
+      # secrets context is NOT available in step-level `if`, so precompute here.
+      HAS_KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE_FILE_BASE64 != '' }}
+      HAS_KEYSTORE_PROPS: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PROPERTIES_FILE_BASE64 != '' }}
     steps:
       - name: Clone
         uses: actions/checkout@v4
@@ -191,16 +194,16 @@ jobs:
           path: os/android/app/.cxx
           key: android-release-cmake
       - name: Setup signing config
-        if: ${{ secrets.ANDROID_RELEASE_KEYSTORE_FILE_BASE64 != '' && secrets.ANDROID_RELEASE_KEYSTORE_PROPERTIES_FILE_BASE64 != '' }}
+        if: ${{ env.HAS_KEYSTORE == 'true' && env.HAS_KEYSTORE_PROPS == 'true' }}
         run: |
           cd os/android
           echo "${{ secrets.ANDROID_RELEASE_KEYSTORE_FILE_BASE64 }}" | base64 --decode > release.keystore
           echo "${{ secrets.ANDROID_RELEASE_KEYSTORE_PROPERTIES_FILE_BASE64 }}" | base64 --decode > release-keystore.properties
       - name: Build release APK
-        if: ${{ secrets.ANDROID_RELEASE_KEYSTORE_FILE_BASE64 != '' }}
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
         run: cd os/android && ./gradlew assembleRelease
       - name: Build debug APK (fallback, no signing)
-        if: ${{ secrets.ANDROID_RELEASE_KEYSTORE_FILE_BASE64 == '' }}
+        if: ${{ env.HAS_KEYSTORE == 'false' }}
         run: cd os/android && ./gradlew assembleDebug
       - name: Upload
         env:
