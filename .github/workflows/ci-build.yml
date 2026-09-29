@@ -154,13 +154,13 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt update
-          sudo apt install g++-multilib libsdl2-dev:i386 zlib1g-dev:i386
+          sudo apt install g++-multilib
 
       - name: Dependencies (x64)
         if: matrix.arch == 'x64'
         run: |
           sudo apt update
-          sudo apt install libsdl2-dev zlib1g-dev
+          sudo apt install libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxxf86vm-dev libasound2-dev libpulse-dev libpng-dev
 
       - name: Cache cmake build
         uses: actions/cache@v4
@@ -194,9 +194,8 @@ jobs:
 
       - name: Dependencies
         run: |
-          sudo dpkg --add-architecture armhf
           sudo apt update
-          sudo apt install gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf libsdl2-dev:armhf zlib1g-dev:armhf
+          sudo apt install gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
 
       - name: Configure
         run: |
@@ -230,7 +229,7 @@ jobs:
       - name: Dependencies
         run: |
           sudo apt update
-          sudo apt install libsdl2-dev zlib1g-dev
+          sudo apt install libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxxf86vm-dev libasound2-dev libpulse-dev libpng-dev
 
       - name: Configure
         run: cmake -B build -D CMAKE_BUILD_TYPE=Debug

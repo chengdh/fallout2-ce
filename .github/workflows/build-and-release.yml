@@ -129,11 +129,11 @@ jobs:
         include:
           - arch: x64
             preset: linux-x64-release
-            deps: libsdl2-dev zlib1g-dev
+            deps: libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxxf86vm-dev libasound2-dev libpulse-dev libpng-dev
             i386: false
           - arch: x86
             preset: linux-x86-release
-            deps: g++-multilib libsdl2-dev:i386 zlib1g-dev:i386
+            deps: g++-multilib
             i386: true
     env:
       TAG: ${{ needs.create-release.outputs.tag }}
@@ -145,7 +145,6 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt update
-          sudo apt install --allow-downgrades libpcre2-8-0=10.34-7
           sudo apt install ${{ matrix.deps }}
       - name: Dependencies (x64)
         if: ${{ !matrix.i386 }}
