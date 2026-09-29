@@ -53,6 +53,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "Fallout2 CE ${VERSION}" \
             --notes "Automated multi-platform build (Windows / macOS / Linux / Android / iOS). Version ${VERSION}."
 
