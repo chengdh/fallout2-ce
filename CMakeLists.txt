@@ -324,6 +324,7 @@ endif()
 if(WIN32)
     target_link_libraries(${EXECUTABLE_NAME}
         winmm
+        ws2_32
     )
 endif()
 

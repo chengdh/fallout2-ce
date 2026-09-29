@@ -980,7 +980,18 @@ void startServer()
     if (gRunning.load()) {
         return;
     }
+#ifdef _WIN32
+    {
+        WSADATA wsa;
+        if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+            return;
+        }
+    }
+#endif
     if (!bindAndListen(settings.pipboy.port, settings.pipboy.bind_address)) {
+#ifdef _WIN32
+        WSACleanup();
+#endif
         return;
     }
     gRunning.store(true);
@@ -1000,6 +1011,9 @@ void stopServer()
     if (gThread.joinable()) {
         gThread.join();
     }
+#ifdef _WIN32
+    WSACleanup();
+#endif
 }
 
 } // namespace
