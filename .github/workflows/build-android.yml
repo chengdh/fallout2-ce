@@ -13,6 +13,11 @@ name: Build Android
 
 on:
   push:
+    # pipboy-server and main already build the Android APK via
+    # build-and-release.yml / ci-build.yml, so skip the duplicate here.
+    branches-ignore:
+      - pipboy-server
+      - main
   pull_request:
 
 concurrency:
